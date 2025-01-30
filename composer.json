@@ -1,0 +1,26 @@
+{
+    "name": "pocketframe/pocketframe-framework",
+    "description": "Pocketframe core engine",
+    "type": "library",
+    "require": {
+        "williamug/versioning": "dev-main",
+        "vlucas/phpdotenv": "5.6.x-dev",
+        "symfony/error-handler": "7.3.x-dev"
+    },
+    "require-dev": {
+        "symfony/var-dumper": "7.3.x-dev"
+    },
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Pocketframe\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Asaba William",
+            "email": "asabawilliamdk@yahoo.com"
+        }
+    ],
+    "minimum-stability": "dev"
+}
