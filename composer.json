@@ -1,5 +1,5 @@
 {
-    "name": "pocketframe/pocketframe-framework",
+    "name": "pocketframe/framework",
     "description": "Pocketframe core engine",
     "type": "library",
     "require": {
