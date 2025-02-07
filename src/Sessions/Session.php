@@ -1,6 +1,6 @@
 <?php
 
-namespace Core\Sessions;
+namespace Pocketframe\Sessions;
 
 class Session
 {
