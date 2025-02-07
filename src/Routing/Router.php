@@ -1,76 +1,65 @@
 <?php
 
-namespace Core\Routing;
+namespace Pocketframe\Routing;
 
-use Core\Middleware\Middleware;
+use Pocketframe\Container\Container;
+use Pocketframe\Http\Request\Request;
+use Pocketframe\Http\Response\Response;
 
 class Router
 {
     protected $routes = [];
+    protected $middleware = [];
+    protected $container;
 
-    public function addItemsToArray($method, $uri, $controller)
+    public function __construct(Container $container)
     {
-        $controller = $controller . '.php';
-        $this->routes[] = [
-            'uri' => $uri,
-            'controller' => $controller,
-            'method' => $method,
-            'middleware' => null,
+        $this->container = $container;
+    }
+
+    public function get($uri, $action, $middleware = [])
+    {
+        $this->add('GET', $uri, $action, $middleware);
+    }
+
+    public function post($uri, $action, $middleware = [])
+    {
+        $this->add('POST', $uri, $action, $middleware);
+    }
+
+    protected function add($method, $uri, $action, $middleware)
+    {
+        $this->routes[$method][$uri] = [
+            'action' => $action,
+            'middleware' => $middleware
         ];
-        return $this;
     }
 
-    public function get($uri, $controller)
+    public function dispatch(Request $request)
     {
-        return $this->addItemsToArray('GET', $uri, $controller);
-    }
+        $method = $request->method();
+        $uri = $request->uri();
 
-    public function post($uri, $controller)
-    {
-        return $this->addItemsToArray('POST', $uri, $controller);
-    }
+        foreach ($this->routes[$method] as $routeUri => $route) {
+            $pattern = '#^' . preg_replace('/\{[a-z]+\}/', '([^/]+)', $routeUri) . '$#';
 
-    public function put($uri, $controller)
-    {
-        return $this->addItemsToArray('PUT', $uri, $controller);
-    }
+            if (preg_match($pattern, $uri, $matches)) {
+                array_shift($matches);
 
-    public function delete($uri, $controller)
-    {
-        return $this->addItemsToArray('DELETE', $uri, $controller);
-    }
-
-    public function only($key)
-    {
-        $this->routes[array_key_last($this->routes)]['middleware'] = $key;
-        return $this;
-    }
-
-    public function previousUrl()
-    {
-        return $_SERVER['HTTP_REFERER'];
-    }
-
-
-    public function route($uri, $method)
-    {
-        foreach ($this->routes as $route) {
-            if ($route['uri'] === $uri && $route['method'] === strtoupper($method)) {
-                if ($route['middleware']) {
-                    $middleware = Middleware::MAP[$route['middleware']];
-                    (new $middleware)->handle();
+                // Run middleware stack
+                foreach ($route['middleware'] as $middlewareClass) {
+                    $middleware = $this->container->get($middlewareClass);
+                    if (!$middleware->handle($request)) {
+                        return $middleware->handle($request);
+                    }
                 }
-                return require base_path($route['controller']);
+
+                [$controllerClass, $method] = explode('@', $route['action']);
+                $controller = $this->container->get($controllerClass);
+                return $controller->$method($request, ...$matches);
             }
         }
 
-        $this->abort();
-    }
-
-    function abort($code = 404)
-    {
-        http_response_code($code);
-        require "views/pages/errors/{$code}.php";
-        die();
+        return Response::view('errors/404', [], 404);
     }
 }
