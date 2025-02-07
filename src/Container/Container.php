@@ -1,8 +1,6 @@
 <?php
 
-namespace Core\Container;
-
-use Exception;
+namespace Pocketframe\Container;
 
 class Container
 {
@@ -13,13 +11,13 @@ class Container
         $this->bindings[$key] = $resolver;
     }
 
-    public function resolve($key)
+    public function get($key)
     {
-        if (!array_key_exists($key, $this->bindings)) {
-            throw new Exception("No matching binding found for key: {$key}");
+        if (!isset($this->bindings[$key])) {
+            return new $key();
         }
 
         $resolver = $this->bindings[$key];
-        return call_user_func($resolver);
+        return $resolver();
     }
 }
