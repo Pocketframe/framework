@@ -1,8 +1,8 @@
 <?php
 
-namespace Core\Middleware;
+namespace Pocketframe\Middleware;
 
-use Core\Contracts\MiddlewareInterface;
+use Pocketframe\Contracts\MiddlewareInterface;
 
 class Guest implements MiddlewareInterface
 {
