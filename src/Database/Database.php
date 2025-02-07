@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Core\Database;
+namespace Pocketframe\Database;
 
 use PDO;
 use PDOException;
