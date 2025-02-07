@@ -1,6 +1,6 @@
 <?php
 
-namespace Core\Exceptions;
+namespace Pocketframe\Exceptions;
 
 class DatabaseException
 {
