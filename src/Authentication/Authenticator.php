@@ -1,10 +1,10 @@
 <?php
 
-namespace Core\Authenticator;
+namespace Pocketframe\Authentication;
 
-use Core\Container\App;
-use Core\Database\Database;
-use Core\Sessions\Session;
+use Pocketframe\Container\App;
+use Pocketframe\Database\Database;
+use Pocketframe\Sessions\Session;
 
 class Authenticator
 {

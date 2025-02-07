@@ -1,6 +1,6 @@
 <?php
 
-namespace Core\Database;
+namespace Pocketframe\Database;
 
 class Model extends Builder
 {

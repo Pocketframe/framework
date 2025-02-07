@@ -1,6 +1,6 @@
 <?php
 
-namespace Core\Database;
+namespace Pocketframe\Database;
 
 use PDO;
 use PDOException;

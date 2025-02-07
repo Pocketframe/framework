@@ -1,6 +1,6 @@
 <?php
 
-namespace Core\Validation;
+namespace Pocketframe\Validation;
 
 class Validator
 {
