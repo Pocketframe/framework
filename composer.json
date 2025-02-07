@@ -12,6 +12,9 @@
     },
     "license": "MIT",
     "autoload": {
+        "files": [
+            "src/functions.php"
+        ],
         "psr-4": {
             "Pocketframe\\": "src/"
         }
