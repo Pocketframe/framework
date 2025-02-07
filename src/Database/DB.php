@@ -1,8 +1,8 @@
 <?php
 
-namespace Core\Database;
+namespace Pocketframe\Database;
 
-use Core\Container\App;
+use Pocketframe\Container\App;
 
 class DB
 {
