@@ -3,11 +3,14 @@
 namespace Pocketframe\Container;
 
 use Pocketframe\Http\Request\Request;
+use Pocketframe\Http\Response\Response;
+use Pocketframe\Logger\Logger;
 use Pocketframe\Routing\Router;
 use Throwable;
 
 class App
 {
+
     public function __construct(
         protected Container $container,
         protected Router $router
@@ -16,16 +19,20 @@ class App
     public function run()
     {
         try {
-            // Handle the request through router
-            $response = $this->router->dispatch(
-                $this->container->get(Request::class)
-            );
+            $request = $this->container->get(Request::class);
+            $response = $this->router->dispatch($request);
 
-            // Send response to client
+            // Validate response type
+            if (!$response instanceof Response) {
+                throw new \RuntimeException(
+                    'Controller must return a Response instance'
+                );
+            }
+
             $response->send();
-        } catch (Throwable $e) {
-            // Handle exceptions
+        } catch (\Throwable $e) {
             $this->container->get('exceptionHandler')->handle($e);
+            $this->container->get(Logger::class)->log($e->getMessage());
         }
     }
 }
