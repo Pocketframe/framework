@@ -1,8 +1,12 @@
 <?php
 
-namespace Core\Contracts;
+namespace Pocketframe\Contracts;
+
+use Closure;
+use Pocketframe\Http\Request\Request;
+use Pocketframe\Http\Response\Response;
 
 interface MiddlewareInterface
 {
-    public function handle();
+    public function handle(Request $request, Closure $next): Response;
 }

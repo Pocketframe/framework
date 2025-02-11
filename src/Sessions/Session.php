@@ -4,9 +4,21 @@ namespace Pocketframe\Sessions;
 
 class Session
 {
-    public static function has($key)
+    protected array $data;
+
+    public function __construct(array $data = [])
     {
-        return (bool)static::get($key);
+        $this->data = $data;
+    }
+
+    public function all(): array
+    {
+        return $this->data;
+    }
+
+    public function has(string $key): bool
+    {
+        return isset($_SESSION[$key]);
     }
 
     public static function put($key, $value)
