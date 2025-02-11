@@ -7,6 +7,9 @@ namespace Pocketframe\Database;
 use PDO;
 use PDOException;
 use PDOStatement;
+use Pocketframe\Http\Request\Request;
+use InvalidArgumentException;
+use Pocketframe\Http\Response\Response;
 
 class Database
 {
@@ -55,7 +58,7 @@ class Database
         return $this;
     }
 
-    public function where(string $column, string $operator, string $value): self
+    public function where(string $column, string $operator, string|int|Request $value): self
     {
         $this->conditions[] = ['WHERE', $column, $operator, $value];
         return $this;
@@ -258,6 +261,103 @@ class Database
         }
     }
 
+    public function latest(string $column = 'created_at'): array|string
+    {
+        try {
+            $query = "SELECT " . implode(', ', $this->columns) . " FROM {$this->table}";
+
+            if (!empty($this->joins)) {
+                foreach ($this->joins as $join) {
+                    $query .= " {$join[0]} {$join[1]} ON {$join[2]} {$join[3]} {$join[4]}";
+                }
+            }
+
+            if (count($this->conditions) > 0) {
+                $query .= " WHERE ";
+                foreach ($this->conditions as $condition) {
+                    $query .= match ($condition[0]) {
+                        'OR'             => " OR {$condition[1]} {$condition[2]} '{$condition[3]}'",
+                        'AND'            => " AND {$condition[1]} {$condition[2]} '{$condition[3]}'",
+                        'IS NULL'        => " {$condition[1]} IS NULL",
+                        'IS NOT NULL'    => " {$condition[1]} IS NOT NULL",
+                        'OR IS NULL'     => " OR {$condition[1]} IS NULL",
+                        'DESC'           => " ORDER BY {$condition[1]} DESC",
+                        'ASC'            => " ORDER BY {$condition[1]} ASC",
+                        'AND IS NULL'    => " AND {$condition[1]} IS NULL",
+                        'OR IS NOT NULL' => " OR {$condition[1]} IS NOT NULL",
+                        'WHERE'          => " {$condition[1]} {$condition[2]} '{$condition[3]}'",
+                    };
+                }
+            }
+
+            $query .= " ORDER BY {$column} DESC";
+
+            if (!is_null($this->limit)) {
+                $query .= " LIMIT {$this->limit}";
+            }
+
+            if (!is_null($this->offset)) {
+                $query .= " OFFSET {$this->offset}";
+            }
+
+            $this->statement = $this->connection->prepare($query);
+            $this->statement->execute();
+            return $this->statement->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("Query failed: " . $e->getMessage());
+            return [];
+        } finally {
+            $this->reset();
+        }
+    }
+
+    public function first(): array|string
+    {
+        try {
+            $query = "SELECT " . implode(', ', $this->columns) . " FROM {$this->table}";
+
+            if (!empty($this->joins)) {
+                foreach ($this->joins as $join) {
+                    $query .= " {$join[0]} {$join[1]} ON {$join[2]} {$join[3]} {$join[4]}";
+                }
+            }
+
+            if (count($this->conditions) > 0) {
+                $query .= " WHERE ";
+                foreach ($this->conditions as $condition) {
+                    $query .= match ($condition[0]) {
+                        'OR'             => " OR {$condition[1]} {$condition[2]} '{$condition[3]}'",
+                        'AND'            => " AND {$condition[1]} {$condition[2]} '{$condition[3]}'",
+                        'IS NULL'        => " {$condition[1]} IS NULL",
+                        'IS NOT NULL'    => " {$condition[1]} IS NOT NULL",
+                        'OR IS NULL'     => " OR {$condition[1]} IS NULL",
+                        'DESC'           => " ORDER BY {$condition[1]} DESC",
+                        'ASC'            => " ORDER BY {$condition[1]} ASC",
+                        'AND IS NULL'    => " AND {$condition[1]} IS NULL",
+                        'OR IS NOT NULL' => " OR {$condition[1]} IS NOT NULL",
+                        'WHERE'          => " {$condition[1]} {$condition[2]} '{$condition[3]}'",
+                    };
+                }
+            }
+
+            $query .= " LIMIT 1";
+
+            $this->statement = $this->connection->prepare($query);
+            $this->statement->execute();
+            $result = $this->statement->fetch(PDO::FETCH_ASSOC);
+
+            if (!$result) {
+                return Response::view('errors/' . Response::NOT_FOUND);
+            }
+            return $result;
+        } catch (PDOException $e) {
+            error_log("Query failed: " . $e->getMessage());
+            return [];
+        } finally {
+            $this->reset();
+        }
+    }
+
     /**
      * This function is used to find a single record based on a column and value
      *
@@ -277,6 +377,7 @@ class Database
             return $this->statement->fetch();
         } catch (PDOException $e) {
             error_log("Query failed: " . $e->getMessage());
+
             return [];
         }
     }
@@ -290,6 +391,17 @@ class Database
         }
 
         return $result;
+    }
+
+    public function paginate(int $perPage): array
+    {
+        $currentPage = $_GET['page'] ?? 1;
+        $offset = ($currentPage - 1) * $perPage;
+        $this->limit($perPage)->offset($offset);
+        return [
+            'data' => $this->get(),
+            'currentPage' => (int)$currentPage,
+        ];
     }
 
 
