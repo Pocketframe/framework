@@ -8,11 +8,12 @@
  */
 
 use Pocketframe\Sessions\Session;
-use Exception;
 use Pocketframe\Http\Response\Response;
 
 /**
  * Get the absolute path from the base directory
+ * 
+ * This function returns the absolute path from the base directory by appending the given path to the base path.
  * 
  * @param string $path The relative path to append
  * @return string The absolute path from base directory
@@ -26,6 +27,8 @@ if (!function_exists('base_path')) {
 
 /**
  * Check if the current URL matches a given path
+ * 
+ * This function checks if the current URL matches a given path.
  * 
  * @param string $value The URL path to check against
  * @return bool True if current URL matches, false otherwise
@@ -41,7 +44,9 @@ if (!function_exists('urlIs')) {
 /**
  * Abort the request with an error page
  * 
- * @param int $code HTTP status code (defaults to 404)
+ * This function aborts the request with an error page.
+ * 
+ * @param int $code HTTP status code (defaults to Response::NOT_FOUND)
  * @return void Dies after displaying error page
  */
 if (!function_exists('abort')) {
@@ -55,6 +60,8 @@ if (!function_exists('abort')) {
 
 /**
  * Authorize a condition or abort with error
+ * 
+ * This function checks a condition and aborts with an error if the condition is false.
  * 
  * @param bool $condition The condition to check
  * @param int $status HTTP status code on failure (defaults to 403)
@@ -71,6 +78,8 @@ if (!function_exists('authorize')) {
 
 /**
  * Redirect to another URL path
+ * 
+ * This function redirects to a given URL path.
  * 
  * @param string $path The URL path to redirect to
  * @return void Dies after sending redirect header
@@ -91,6 +100,8 @@ if (!function_exists('redirect')) {
 /**
  * Get old input value from session
  * 
+ * This function retrieves an old input value from the session.
+ * 
  * @param string $key The input field key
  * @param mixed $default Default value if key not found
  * @return mixed The old input value or default     
@@ -104,6 +115,8 @@ if (!function_exists('old')) {
 
 /**
  * Get environment variable
+ * 
+ * This function retrieves an environment variable from the server environment.
  * 
  * @param string $key The environment variable key
  * @param mixed $default Default value if key not found
@@ -119,6 +132,8 @@ if (!function_exists('env')) {
 /**
  * Convert a number to words
  * 
+ * This function converts a number to words using the NumberFormatter class.
+ * 
  * @param int $value The number to convert
  * @return string The number in words
  */
@@ -132,6 +147,8 @@ if (!function_exists('numberToWords')) {
 
 /**
  * Generate a CSRF token
+ * 
+ * This function generates a CSRF token and stores it in the session.
  * 
  * @return string The generated CSRF token
  */
@@ -158,6 +175,8 @@ if (!function_exists('csrfToken')) {
 /**
  * Validate a CSRF token
  * 
+ * This function validates a CSRF token by comparing it to the session token.   
+ * 
  * @param string $token The CSRF token to validate
  * @return bool True if token is valid, false otherwise
  */
@@ -182,6 +201,8 @@ if (!function_exists('validateCsrfToken')) {
 /**
  * Get the full path to an asset
  * 
+ * This function returns the full path to an asset by appending the asset path to the base path.
+ * 
  * @param string $path The relative path to the asset
  * @return string The full path to the asset
  */
@@ -189,5 +210,88 @@ if (!function_exists('asset')) {
     function asset(string $path): string
     {
         return BASE_PATH . 'public/' . ltrim($path, '/');
+    }
+}
+
+/**
+ * Sanitize a string
+ * 
+ * This function sanitizes a string by converting special characters to HTML entities.
+ * 
+ * @param string $string The string to sanitize
+ * @return string The sanitized string
+ */
+if (!function_exists('sanitize')) {
+    function sanitize(?string $string): string
+    {
+        return htmlspecialchars(trim($string), ENT_QUOTES, 'UTF-8');
+    }
+
+    /**
+     * Generate a method field
+     * 
+     * This function generates a method field for HTML forms.
+     * 
+     * @param string $method The HTTP method to generate the field for
+     * @return string The generated method field
+     */
+    if (!function_exists('method')) {
+        function method(string $method): string
+        {
+            return '<input type="hidden" name="_method" value="' . $method . '">';
+        }
+    }
+
+    /**
+     * Generate a CSRF field
+     * 
+     * This function generates a CSRF field for HTML forms.
+     * 
+     * @return string The generated CSRF field
+     */
+    if (!function_exists('csrf_token')) {
+        function csrf_token(): string
+        {
+            if (!isset($_SESSION)) {
+                session_start();
+            }
+
+            // Ensure the CSRF token is generated before accessing it
+            if (empty($_SESSION['csrf_token'])) {
+                csrfToken();
+            }
+
+            return '<input type="hidden" name="_token" value="' . $_SESSION['csrf_token'] . '">';
+        }
+    }
+}
+
+/**
+ * Get the full path to a configuration file
+ * 
+ * This function returns the full path to a configuration file by appending the configuration path to the base path.
+ * 
+ * @param string $path The relative path to the configuration file
+ * @return string The full path to the configuration file
+ */
+if (!function_exists('config_path')) {
+    function config_path(string $path = ''): string
+    {
+        return base_path('config/' . $path);
+    }
+}
+
+/**
+ * Get the full path to a routes file
+ * 
+ * This function returns the full path to a routes file by appending the routes path to the base path.
+ * 
+ * @param string $path The relative path to the routes file
+ * @return string The full path to the routes file
+ */
+if (!function_exists('routes_path')) {
+    function routes_path(string $path = ''): string
+    {
+        return base_path('routes/' . $path);
     }
 }
