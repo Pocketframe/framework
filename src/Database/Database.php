@@ -381,9 +381,6 @@ class Database
         $query .= " OFFSET " . (int)$this->offset;
       }
 
-      // Log the query for debugging
-      error_log("Generated Query: " . $query);
-
       // Prepare and execute query
       $this->statement = $this->connection->prepare($query);
       $this->statement->execute($bindValues);

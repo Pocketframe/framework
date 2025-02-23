@@ -2,7 +2,7 @@
 
 /**
  * Helper Functions
- * 
+ *
  * This file contains commonly used helper functions for the framework.
  * Each function is wrapped in function_exists() check to prevent conflicts.
  */
@@ -12,9 +12,9 @@ use Pocketframe\Http\Response\Response;
 
 /**
  * Get the absolute path from the base directory
- * 
+ *
  * This function returns the absolute path from the base directory by appending the given path to the base path.
- * 
+ *
  * @param string $path The relative path to append
  * @return string The absolute path from base directory
  */
@@ -27,9 +27,9 @@ if (!function_exists('base_path')) {
 
 /**
  * Check if the current URL matches a given path
- * 
+ *
  * This function checks if the current URL matches a given path.
- * 
+ *
  * @param string $value The URL path to check against
  * @return bool True if current URL matches, false otherwise
  */
@@ -43,9 +43,9 @@ if (!function_exists('urlIs')) {
 
 /**
  * Abort the request with an error page
- * 
+ *
  * This function aborts the request with an error page.
- * 
+ *
  * @param int $code HTTP status code (defaults to Response::NOT_FOUND)
  * @return void Dies after displaying error page
  */
@@ -60,9 +60,9 @@ if (!function_exists('abort')) {
 
 /**
  * Authorize a condition or abort with error
- * 
+ *
  * This function checks a condition and aborts with an error if the condition is false.
- * 
+ *
  * @param bool $condition The condition to check
  * @param int $status HTTP status code on failure (defaults to 403)
  * @return void Aborts if condition is false
@@ -78,9 +78,9 @@ if (!function_exists('authorize')) {
 
 /**
  * Redirect to another URL path
- * 
+ *
  * This function redirects to a given URL path.
- * 
+ *
  * @param string $path The URL path to redirect to
  * @return void Dies after sending redirect header
  */
@@ -99,12 +99,12 @@ if (!function_exists('redirect')) {
 
 /**
  * Get old input value from session
- * 
+ *
  * This function retrieves an old input value from the session.
- * 
+ *
  * @param string $key The input field key
  * @param mixed $default Default value if key not found
- * @return mixed The old input value or default     
+ * @return mixed The old input value or default
  */
 if (!function_exists('old')) {
     function old(string $key, $default = null)
@@ -115,9 +115,9 @@ if (!function_exists('old')) {
 
 /**
  * Get environment variable
- * 
+ *
  * This function retrieves an environment variable from the server environment.
- * 
+ *
  * @param string $key The environment variable key
  * @param mixed $default Default value if key not found
  * @return mixed The environment variable value or default
@@ -125,15 +125,16 @@ if (!function_exists('old')) {
 if (!function_exists('env')) {
     function env(string $key, $default = null)
     {
-        return getenv($key) ?: $default;
+        $value = getenv($key);
+        return $value !== false ? $value : $default;
     }
 }
 
 /**
  * Convert a number to words
- * 
+ *
  * This function converts a number to words using the NumberFormatter class.
- * 
+ *
  * @param int $value The number to convert
  * @return string The number in words
  */
@@ -147,9 +148,9 @@ if (!function_exists('numberToWords')) {
 
 /**
  * Generate a CSRF token
- * 
+ *
  * This function generates a CSRF token and stores it in the session.
- * 
+ *
  * @return string The generated CSRF token
  */
 if (!function_exists('csrfToken')) {
@@ -174,9 +175,9 @@ if (!function_exists('csrfToken')) {
 
 /**
  * Validate a CSRF token
- * 
- * This function validates a CSRF token by comparing it to the session token.   
- * 
+ *
+ * This function validates a CSRF token by comparing it to the session token.
+ *
  * @param string $token The CSRF token to validate
  * @return bool True if token is valid, false otherwise
  */
@@ -200,9 +201,9 @@ if (!function_exists('validateCsrfToken')) {
 
 /**
  * Get the full path to an asset
- * 
+ *
  * This function returns the full path to an asset by appending the asset path to the base path.
- * 
+ *
  * @param string $path The relative path to the asset
  * @return string The full path to the asset
  */
@@ -215,9 +216,9 @@ if (!function_exists('asset')) {
 
 /**
  * Sanitize a string
- * 
+ *
  * This function sanitizes a string by converting special characters to HTML entities.
- * 
+ *
  * @param string $string The string to sanitize
  * @return string The sanitized string
  */
@@ -229,9 +230,9 @@ if (!function_exists('sanitize')) {
 
     /**
      * Generate a method field
-     * 
+     *
      * This function generates a method field for HTML forms.
-     * 
+     *
      * @param string $method The HTTP method to generate the field for
      * @return string The generated method field
      */
@@ -244,9 +245,9 @@ if (!function_exists('sanitize')) {
 
     /**
      * Generate a CSRF field
-     * 
+     *
      * This function generates a CSRF field for HTML forms.
-     * 
+     *
      * @return string The generated CSRF field
      */
     if (!function_exists('csrf_token')) {
@@ -268,30 +269,98 @@ if (!function_exists('sanitize')) {
 
 /**
  * Get the full path to a configuration file
- * 
+ *
  * This function returns the full path to a configuration file by appending the configuration path to the base path.
- * 
+ *
  * @param string $path The relative path to the configuration file
  * @return string The full path to the configuration file
  */
 if (!function_exists('config_path')) {
     function config_path(string $path = ''): string
     {
-        return base_path('config/' . $path);
+        return base_path('config/' . $path . '.php');
     }
 }
 
 /**
+ * Get a configuration value
+ *
+ * This function retrieves a configuration value from the configuration file.
+ *
+ * @param string $key The configuration key
+ * @param mixed $default The default value if the key is not found
+ * @return mixed The configuration value or default
+ */
+if (!function_exists('config')) {
+    function config($key, $default = null)
+    {
+        static $config;
+
+        if (!$config) {
+            // $config = require BASE_PATH . '/config/app.php';
+            $config = require config_path('app');
+        }
+
+        // Support dot notation like "app.debug"
+        $keys = explode('.', $key);
+        $value = $config;
+
+        foreach ($keys as $key) {
+            if (!is_array($value) || !isset($value[$key])) {
+                return $default;
+            }
+            $value = $value[$key];
+        }
+
+        return $value;
+    }
+}
+
+
+/**
  * Get the full path to a routes file
- * 
+ *
  * This function returns the full path to a routes file by appending the routes path to the base path.
- * 
+ *
  * @param string $path The relative path to the routes file
  * @return string The full path to the routes file
  */
 if (!function_exists('routes_path')) {
     function routes_path(string $path = ''): string
     {
-        return base_path('routes/' . $path);
+        return base_path('routes/' . $path . '.php');
+    }
+}
+
+/**
+ * Load environment variables from a file
+ *
+ * This function loads environment variables from a file and puts them into the $_ENV array.
+ *
+ * @param string $path The path to the environment file
+ */
+if (!function_exists('load_env')) {
+    function load_env($path)
+    {
+        if (!file_exists($path)) {
+            return;
+        }
+
+        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            if (strpos(trim($line), '#') === 0) continue;
+            list($name, $value) = explode('=', $line, 2);
+            putenv(trim($name) . '=' . trim($value));
+        }
+    }
+}
+
+if (!function_exists('error_reporting')) {
+    function error_report()
+    {
+        error_reporting(E_ALL);
+        ini_set('display_errors', '1');
+        ini_set('display_startup_errors', '1');
+        ini_set('error_log', base_path('logs/pocketframe.log'));
     }
 }
