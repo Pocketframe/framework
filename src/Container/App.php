@@ -34,7 +34,6 @@ class App
     } catch (\Throwable $e) {
       $this->container->get('exceptionHandler')->handle($e);
       $this->container->get(Logger::class)->log($e->getMessage());
-      $this->container->get(PDOExceptionHandler::class)->handle($e);
     }
   }
 }
