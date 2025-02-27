@@ -2,6 +2,7 @@
 
 namespace Pocketframe\Http\Response;
 
+use Pocketframe\TemplateEngine\View;
 use RuntimeException;
 
 class Response
@@ -28,36 +29,31 @@ class Response
         $this->headers = $headers;
     }
 
-    /**
-     * Render a view file and exit the script
-     * 
-     * This method renders a view file and exits the script.
-     * 
-     * @param string $view The name of the view file to render
-     * @param array $data The data to pass to the view
-     * @param int $status The HTTP status code to set
-     * @return Response The new Response object
-     */
 
+
+    /**
+     * Render a view template and return a Response object
+     *
+     * This method takes a view template name, optional data array to pass to the view,
+     * and optional status code. It renders the view using the template engine and
+     * returns a new Response object containing the rendered content.
+     *
+     * @param string $view The name of the view template to render
+     * @param array $data Optional data array to pass to the view template
+     * @param int $status The HTTP status code to set (defaults to 200 OK)
+     * @return Response A new Response object containing the rendered view
+     */
     public static function view($view, $data = [], $status = self::OK): Response
     {
-        http_response_code($status);
-        $viewPath = base_path("resources/views/{$view}.view.php");
-        if (!file_exists($viewPath)) {
-            self::fallbackError("resources/views [{$view}] not found");
-        }
-        ob_start();
-        extract($data);
-        require $viewPath;
-        $content = ob_get_clean();
-        return new static($content, $status);
+        $content = View::render($view, $data);
+        return new Response($content, $status);
     }
 
     /**
      * Send a JSON response and exit the script
-     * 
+     *
      * This method sends a JSON response and exits the script.
-     * 
+     *
      * @param array $data The data to encode as JSON
      * @param int $status The HTTP status code to set
      * @return Response The new Response object
@@ -73,9 +69,9 @@ class Response
 
     /**
      * Send the response and exit the script
-     * 
+     *
      * This method sends the response and exits the script.
-     * 
+     *
      * @return void
      */
     public function send(): void
@@ -89,9 +85,9 @@ class Response
 
     /**
      * Redirect to a specific URL
-     * 
+     *
      * This method redirects to a specific URL and returns a new Response object.
-     * 
+     *
      * @param string $url The URL to redirect to
      * @param int $status The HTTP status code to set
      * @return self The new Response object
@@ -103,9 +99,9 @@ class Response
 
     /**
      * Send a text response and exit the script
-     * 
+     *
      * This method sends a text response and exits the script.
-     * 
+     *
      * @param string $text The text to send
      * @param int $status The HTTP status code to set
      * @return self The new Response object
@@ -117,9 +113,9 @@ class Response
 
     /**
      * Send a no content response and exit the script
-     * 
+     *
      * This method sends a no content response and exits the script.
-     * 
+     *
      * @return self The new Response object
      */
     public static function noContent(): self
@@ -129,9 +125,9 @@ class Response
 
     /**
      * Send a file response and exit the script
-     * 
+     *
      * This method sends a file response and exits the script.
-     * 
+     *
      * @param string $path The path to the file to send
      * @param string $name The name of the file to send
      * @param array $headers The headers to send
@@ -154,9 +150,9 @@ class Response
 
     /**
      * Stream a response and exit the script
-     * 
+     *
      * This method streams a response and exits the script. It takes a callback function, a status code, and an array of headers.
-     * 
+     *
      * @param callable $callback The callback function to stream
      * @param int $status The HTTP status code to set
      * @param array $headers The headers to send
@@ -169,9 +165,9 @@ class Response
 
     /**
      * Set a header for the response
-     * 
+     *
      * This method sets a header for the response.
-     * 
+     *
      * @param string $name The name of the header
      * @param string $value The value of the header
      * @return self The new Response object
@@ -184,9 +180,9 @@ class Response
 
     /**
      * Get the headers for the response
-     * 
+     *
      * This method returns the headers for the response.
-     * 
+     *
      * @return array The headers for the response
      */
     public function getHeaders(): array
@@ -196,9 +192,9 @@ class Response
 
     /**
      * Set a cookie for the response
-     * 
+     *
      * This method sets a cookie for the response.
-     * 
+     *
      * @param string $name The name of the cookie
      * @param string $value The value of the cookie
      * @param int $expire The expiration time of the cookie
@@ -223,9 +219,9 @@ class Response
 
     /**
      * Cache a response for a specific number of minutes
-     * 
+     *
      * This method caches a response for a specific number of minutes.
-     * 
+     *
      * @param int $minutes The number of minutes to cache the response
      * @return self The new Response object
      */
@@ -236,9 +232,9 @@ class Response
 
     /**
      * No cache response
-     * 
+     *
      * This method sets the response to no cache.
-     * 
+     *
      * @return self The new Response object
      */
     public function noCache(): self
@@ -251,9 +247,9 @@ class Response
 
     /**
      * JSONP response
-     * 
+     *
      * This method returns a JSONP response.
-     * 
+     *
      * @param array $data The data to encode as JSON
      * @param string $callbackParam The name of the callback parameter
      * @return self The new Response object
@@ -272,9 +268,9 @@ class Response
 
     /**
      * Pretty JSON response
-     * 
+     *
      * This method returns a pretty JSON response.
-     * 
+     *
      * @param array $data The data to encode as JSON
      * @param int $status The HTTP status code to set
      * @return self The new Response object
@@ -290,9 +286,9 @@ class Response
 
     /**
      * With header
-     * 
+     *
      * This method returns a new Response object with a header.
-     * 
+     *
      * @param string $name The name of the header
      * @param string $value The value of the header
      * @return self The new Response object
@@ -304,9 +300,9 @@ class Response
 
     /**
      * Check if the response is OK
-     * 
+     *
      * This method checks if the response is OK.
-     * 
+     *
      * @return bool True if the response is OK, false otherwise
      */
     public function isOk(): bool
@@ -316,9 +312,9 @@ class Response
 
     /**
      * Check if the response is a redirect
-     * 
+     *
      * This method checks if the response is a redirect.
-     * 
+     *
      * @return bool True if the response is a redirect, false otherwise
      */
     public function isRedirect(): bool
@@ -328,9 +324,9 @@ class Response
 
     /**
      * Check if the response is a client error
-     * 
+     *
      * This method checks if the response is a client error.
-     * 
+     *
      * @return bool True if the response is a client error, false otherwise
      */
     public function isClientError(): bool
@@ -340,9 +336,9 @@ class Response
 
     /**
      * Check if the response is a server error
-     * 
+     *
      * This method checks if the response is a server error.
-     * 
+     *
      * @return bool True if the response is a server error, false otherwise
      */
     public function isServerError(): bool
@@ -352,9 +348,9 @@ class Response
 
     /**
      * Attachment
-     * 
+     *
      * This method returns a new Response object with an attachment header.
-     * 
+     *
      * @param string $filename The filename of the attachment
      * @return self The new Response object
      */
@@ -366,9 +362,9 @@ class Response
 
     /**
      * Fallback error handler
-     * 
+     *
      * This method handles fallback errors by displaying an error page.
-     * 
+     *
      * @param string $message The error message to display
      * @return void
      */
@@ -392,7 +388,7 @@ class Response
             background: #f8fafc;
             text-align: center;
         }
-        
+
         .error-container {
             max-width: auto;
             padding: 2rem;
@@ -400,12 +396,12 @@ class Response
             border-radius: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
-        
+
         h1 {
             color: #dc2626;
             margin: 0 0 1rem 0;
         }
-        
+
         pre {
             white-space: pre-wrap;
             word-wrap: break-word;
