@@ -14,7 +14,7 @@ class AuthMiddleware
         if (!$this->isAuthenticated($request)) {
             return $request->expectsJson()
                 ? Response::json(['error' => 'Unauthenticated'], Response::UNAUTHORIZED)
-                : redirect('/login');
+                : Response::redirect('/login');
         }
 
         return $next($request);
