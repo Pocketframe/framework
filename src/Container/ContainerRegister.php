@@ -12,7 +12,7 @@ class ContainerRegister
 
   public function register(Container $container)
   {
-    $container->bind('exceptionHandler', function () {
+    $container->bind(Handler::class, function () {
       return new Handler();
     });
 
