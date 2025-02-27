@@ -9,6 +9,7 @@
 
 use Pocketframe\Sessions\Session;
 use Pocketframe\Http\Response\Response;
+use Pocketframe\Routing\Router;
 
 /**
  * Get the absolute path from the base directory
@@ -355,6 +356,15 @@ if (!function_exists('load_env')) {
     }
 }
 
+/**
+ * Configure error reporting settings
+ *
+ * This function sets up error reporting configuration by enabling all error types,
+ * displaying errors on screen, showing startup errors, and specifying a log file
+ * for error messages.
+ *
+ * @return void
+ */
 if (!function_exists('error_reporting')) {
     function error_report()
     {
@@ -362,5 +372,30 @@ if (!function_exists('error_reporting')) {
         ini_set('display_errors', '1');
         ini_set('display_startup_errors', '1');
         ini_set('error_log', base_path('logs/pocketframe.log'));
+    }
+}
+
+
+/**
+ * Generate a URL for a named route
+ *
+ * This function generates a URL for a route with the given name and parameters.
+ * It uses the Router singleton instance to look up the route pattern and
+ * substitutes any route parameters to build the final URL.
+ *
+ * @param string $name The name of the route to generate a URL for
+ * @param array $params Optional parameters to substitute in the route pattern
+ * @return string The generated URL for the named route
+ */
+if (!function_exists('route')) {
+    function route(string $name, array $params = []): string
+    {
+        global $router;
+
+        if (!isset($router)) {
+            throw new InvalidArgumentException("Router instance not available.");
+        }
+
+        return $router->route($name, $params);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Pocketframe\Container;
 
+use Pocketframe\Exceptions\Handler;
 use Pocketframe\Exceptions\PDOExceptionHandler;
 use Pocketframe\Http\Request\Request;
 use Pocketframe\Http\Response\Response;
@@ -32,7 +33,7 @@ class App
 
       $response->send();
     } catch (\Throwable $e) {
-      $this->container->get('exceptionHandler')->handle($e);
+      $this->container->get(Handler::class)->handle($e);
       $this->container->get(Logger::class)->log($e->getMessage());
     }
   }
