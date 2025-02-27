@@ -49,11 +49,19 @@ class Router
      */
     protected $container;
 
+    /**
+     * Array of named routes.
+     *
+     * @var array
+     */
+    protected $namedRoutes = [];
+
 
     public function __construct(Container $container)
     {
         $this->container = $container;
     }
+
 
     /**
      * Register a GET route.
@@ -61,15 +69,18 @@ class Router
      * Registers a new route that matches GET requests to the given URI pattern.
      * The route will execute the specified controller action or closure when matched.
      * Optional middleware can be applied to filter the request before reaching the action.
+     * The route can also be given a name for convenient URL generation.
      *
      * @param string $uri The URI pattern to match
-     * @param mixed $action The controller action or closure to execute
-     * @param array $middleware Array of middleware to apply
+     * @param string $action The controller action or closure to execute
+     * @param array|null $middleware Array of middleware to apply
+     * @param string|null $name Optional name for the route
      */
-    public function get($uri, $action, $middleware = [])
+    public function get(string $uri, string $action, ?array $middleware = null, ?string $name = null)
     {
-        $this->add('GET', $uri, $action, $middleware);
+        $this->add('GET', $uri, $action, $middleware ?? [], $name);
     }
+
 
     /**
      * Register a POST route.
@@ -77,15 +88,18 @@ class Router
      * Registers a new route that matches POST requests to the given URI pattern.
      * The route will execute the specified controller action or closure when matched.
      * Optional middleware can be applied to filter the request before reaching the action.
+     * The route can also be given a name for convenient URL generation.
      *
      * @param string $uri The URI pattern to match
-     * @param mixed $action The controller action or closure to execute
-     * @param array $middleware Array of middleware to apply
+     * @param string $action The controller action or closure to execute
+     * @param array|null $middleware Array of middleware to apply
+     * @param string|null $name Optional name for the route
      */
-    public function post($uri, $action, $middleware = [])
+    public function post(string $uri, string $action, ?array $middleware = null, ?string $name = null)
     {
-        $this->add('POST', $uri, $action, $middleware);
+        $this->add('POST', $uri, $action, $middleware ?? [], $name);
     }
+
 
     /**
      * Register a PUT route.
@@ -93,15 +107,18 @@ class Router
      * Registers a new route that matches PUT requests to the given URI pattern.
      * The route will execute the specified controller action or closure when matched.
      * Optional middleware can be applied to filter the request before reaching the action.
+     * The route can also be given a name for convenient URL generation.
      *
      * @param string $uri The URI pattern to match
-     * @param mixed $action The controller action or closure to execute
-     * @param array $middleware Array of middleware to apply
+     * @param string $action The controller action or closure to execute
+     * @param array|null $middleware Array of middleware to apply
+     * @param string|null $name Optional name for the route
      */
-    public function put($uri, $action, $middleware = [])
+    public function put(string $uri, string $action, ?array $middleware = null, ?string $name = null)
     {
-        $this->add('PUT', $uri, $action, $middleware);
+        $this->add('PUT', $uri, $action, $middleware ?? [], $name);
     }
+
 
     /**
      * Register a DELETE route.
@@ -109,14 +126,16 @@ class Router
      * Registers a new route that matches DELETE requests to the given URI pattern.
      * The route will execute the specified controller action or closure when matched.
      * Optional middleware can be applied to filter the request before reaching the action.
+     * The route can also be given a name for convenient URL generation.
      *
      * @param string $uri The URI pattern to match
-     * @param mixed $action The controller action or closure to execute
-     * @param array $middleware Array of middleware to apply
+     * @param string $action The controller action or closure to execute
+     * @param array|null $middleware Array of middleware to apply
+     * @param string|null $name Optional name for the route
      */
-    public function delete($uri, $action, $middleware = [])
+    public function delete(string $uri, string $action, ?array $middleware = null, ?string $name = null)
     {
-        $this->add('DELETE', $uri, $action, $middleware);
+        $this->add('DELETE', $uri, $action, $middleware ?? [], $name);
     }
 
     /**
@@ -171,7 +190,7 @@ class Router
      * @param mixed $action The controller action or closure to execute
      * @param array $middleware Array of middleware to apply
      */
-    protected function add($method, $uri, $action, $middleware = [])
+    protected function add($method, $uri, $action, $middleware = [], $name = null)
     {
         $mergedMiddleware = $this->globalMiddleware;
 
@@ -189,12 +208,37 @@ class Router
         preg_match_all('/\{([a-z]+)\}/', $uri, $matches);
         $paramNames = $matches[1] ?? [];
 
-        $this->routes[$method][$uri] = [
+        $routeData = [
             'action' => $action,
-            'middleware' => $mergedMiddleware, // Fixed: Use merged middleware
+            'middleware' => $mergedMiddleware,
             'params' => $paramNames,
             'pattern' => preg_replace('/\{([a-z]+)\}/', '([^/]+)', $uri)
         ];
+
+        $this->routes[$method][$uri] = $routeData;
+
+        if ($name) {
+            $this->namedRoutes[$name] = ['uri' => $uri, 'params' => $paramNames];
+        }
+    }
+
+    public function route($name, $params = [])
+    {
+        if (!isset($this->namedRoutes[$name])) {
+            throw new InvalidArgumentException("Route {$name} not found.");
+        }
+
+        $route = $this->namedRoutes[$name];
+        $uri = $route['uri'];
+
+        foreach ($route['params'] as $param) {
+            if (!isset($params[$param])) {
+                throw new InvalidArgumentException("Missing route parameter: {$param}");
+            }
+            $uri = str_replace("{{$param}}", $params[$param], $uri);
+        }
+
+        return $uri;
     }
 
     /**
