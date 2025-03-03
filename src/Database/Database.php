@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Pocketframe\Database;
 
 use PDO;
-use PDOException;
 use PDOStatement;
+use Pocketframe\Exceptions\Database\QueryException;
+use Pocketframe\Exceptions\DatabaseException;
 use Pocketframe\Http\Request\Request;
-use InvalidArgumentException;
 use Pocketframe\Http\Response\Response;
 
 class Database
@@ -42,9 +42,8 @@ class Database
     try {
       $this->connection = new PDO($dsn, $database['username'], $database['password']);
       $this->connection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch (PDOException $e) {
-      error_log("Connection failed: " . $e->getMessage());
-      throw new PDOException("Connection failed: " . $e->getMessage());
+    } catch (DatabaseException $e) {
+      throw new DatabaseException("Database connection failed: " . $e->getMessage());
     }
   }
 
@@ -297,7 +296,7 @@ class Database
     try {
 
       if (empty($this->table)) {
-        throw new PDOException("Table not set. Call the table() method before building the query.");
+        throw new QueryException("Table not set. Call the table() method before building the query.");
       }
 
       // Build base SELECT query
@@ -386,8 +385,8 @@ class Database
       $this->statement->execute($bindValues);
 
       return $this->statement->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-      error_log("Query failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return [];
     } finally {
       $this->reset();
@@ -410,9 +409,8 @@ class Database
       $this->statement = $this->connection->prepare($query);
       $this->statement->execute($param);
       return $this->statement;
-    } catch (PDOException $e) {
-      return [];
-      error_log("Query failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return [];
     }
   }
@@ -431,8 +429,8 @@ class Database
       $this->statement = $this->connection->prepare("SELECT * FROM {$table}");
       $this->statement->execute();
       return $this->statement->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-      error_log("Query failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return [];
     }
   }
@@ -456,8 +454,8 @@ class Database
         );
         $this->statement->execute();
         return $this->statement->fetchAll(PDO::FETCH_ASSOC);
-      } catch (PDOException $e) {
-        error_log("Query failed: " . $e->getMessage());
+      } catch (QueryException $e) {
+        throw new QueryException($e->getMessage());
         return [];
       }
     }
@@ -468,8 +466,8 @@ class Database
       );
       $this->statement->execute();
       return $this->statement->fetchAll();
-    } catch (PDOException $e) {
-      error_log("Query failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return [];
     }
   }
@@ -502,8 +500,8 @@ class Database
       $this->statement = $this->connection->prepare("SELECT * FROM {$table} WHERE deleted_at IS NOT NULL");
       $this->statement->execute();
       return $this->statement->fetchAll();
-    } catch (PDOException $e) {
-      error_log("Query failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return [];
     }
   }
@@ -558,8 +556,8 @@ class Database
       $this->statement = $this->connection->prepare($query);
       $this->statement->execute();
       return $this->statement->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-      error_log("Query failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return [];
     } finally {
       $this->reset();
@@ -612,8 +610,8 @@ class Database
         return Response::view('errors/' . Response::NOT_FOUND);
       }
       return $result;
-    } catch (PDOException $e) {
-      error_log("Query failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return [];
     } finally {
       $this->reset();
@@ -638,9 +636,8 @@ class Database
       $this->statement->bindParam(':value', $value);
       $this->statement->execute();
       return $this->statement->fetch();
-    } catch (PDOException $e) {
-      error_log("Query failed: " . $e->getMessage());
-
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return [];
     }
   }
@@ -661,7 +658,7 @@ class Database
     $result = $this->find($table, $column, $operator, $value);
 
     if (!$result) {
-      throw new PDOException("No record found for {$column} {$operator} {$value}");
+      throw new QueryException("No record found for {$column} {$operator} {$value}");
     }
 
     return $result;
@@ -751,8 +748,8 @@ class Database
       // Fetch the count result
       $result = $this->statement->fetch(PDO::FETCH_ASSOC);
       return (int) $result['total'];
-    } catch (PDOException $e) {
-      error_log("Count query failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException($e->getMessage());
       return 0;
     } finally {
       // Restore the query builder state
@@ -824,8 +821,9 @@ class Database
 
       // Return the fetched row
       return $select_statement->fetch(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
+    } catch (QueryException $e) {
       error_log("Insert failed: " . $e->getMessage());
+      throw new QueryException("Insert failed: " . $e->getMessage());
       return null;
     }
   }
@@ -879,8 +877,8 @@ class Database
 
       // Return the fetched row
       return $select_statement->fetch(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-      error_log("Update failed: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException("Update failed: " . $e->getMessage());
       return null;
     }
   }
@@ -903,8 +901,8 @@ class Database
       $this->statement = $this->connection->prepare("UPDATE {$table} SET deleted_at = CURRENT_TIMESTAMP  WHERE $column = :value");
       $this->statement->bindParam(':value', $value);
       $this->statement->execute();
-    } catch (PDOException $e) {
-      error_log("Failed to delete an item: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException("Failed to delete an item: " . $e->getMessage());
       return [];
     }
   }
@@ -927,8 +925,8 @@ class Database
       $this->statement = $this->connection->prepare("DELETE FROM {$table}  WHERE $column = :value");
       $this->statement->bindParam(':value', $value);
       $this->statement->execute();
-    } catch (PDOException $e) {
-      error_log("Failed to delete an item: " . $e->getMessage());
+    } catch (QueryException $e) {
+      throw new QueryException("Failed to delete an item: " . $e->getMessage());
       return [];
     }
   }
@@ -984,9 +982,9 @@ class Database
       $result = $callback($this);
       $this->commit();
       return $result;
-    } catch (PDOException $err) {
+    } catch (QueryException $err) {
       $this->rollback();
-      error_log("Transaction failed: " . $err->getMessage());
+      throw new QueryException("Transaction failed: " . $err->getMessage());
       return null;
     }
   }
