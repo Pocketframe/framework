@@ -4,18 +4,18 @@ namespace Pocketframe\Exceptions;
 
 use Exception;
 
-class ValidationException extends Exception
+class ValidationException extends PocketframeException
 {
-    public readonly array $errors;
-    public readonly array $old;
+    protected $errors;
 
-    public static function throw($errors, $old)
+    public function __construct($errors = [], $message = "Validation failed")
     {
-        $instance = new static('The form failed to validate.');
+        $this->errors = $errors;
+        parent::__construct($message, 422);
+    }
 
-        $instance->errors = $errors;
-        $instance->old = $old;
-
-        throw $instance;
+    public function getErrors()
+    {
+        return $this->errors;
     }
 }
