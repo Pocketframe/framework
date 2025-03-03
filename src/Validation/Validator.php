@@ -15,14 +15,18 @@ class Validator
     foreach ($rules as $field => $ruleSet) {
       foreach ($ruleSet as $rule) {
         if (!$rule->isValid($data[$field] ?? '')) {
-          $this->errors[$field][] = $rule->message();
+          $this->errors[$field][] = str_replace(':attribute', ucfirst($field), $rule->message($field));
         }
       }
     }
 
+    // Store errors and old input in session
     $_SESSION['errors'] = $this->errors;
+    $_SESSION['old'] = $data;
+
     return $this;
   }
+
 
   public function failed(): bool
   {
