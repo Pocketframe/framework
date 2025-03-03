@@ -9,14 +9,25 @@ class TemplateCompiler
   protected string $templatePath;
   protected string $compiledPath;
 
-  public function __construct(string $templateName)
+  public function __construct(string $templateName, bool $isFrameworkTemplate = false)
   {
-    $this->templatePath = base_path("resources/views/{$templateName}.view.php");
+    if ($isFrameworkTemplate) {
+      // Points to vendor pocketframe’s error views
+      // Adjust if your real path differs
+      $this->templatePath = __DIR__ . '/../../resources/views/' . $templateName . '.view.php';
+    } else {
+      // Existing user path
+      $this->templatePath = base_path("resources/views/{$templateName}.view.php");
+    }
     $this->compiledPath = base_path("store/framework/views/" . $this->cacheViewName($templateName));
   }
 
   public function compile(): void
   {
+    if (file_exists($this->compiledPath) && filemtime($this->compiledPath) >= filemtime($this->templatePath)) {
+      return;
+    }
+
     if (!file_exists($this->templatePath)) {
       throw new Exception("Template file not found: {$this->templatePath}");
     }
@@ -117,7 +128,7 @@ class TemplateCompiler
     }
 
     // CSRF and method spoofing
-    $content = str_replace('<% csrf_token %>', '<?php echo csrf_token(); ?>', $content);
+    $content = str_replace('<%= csrf_token %>', '<?php echo csrf_token(); ?>', $content);
     $content = preg_replace('/<% method\s*(.+?)\s*%>/', '<?php echo method($1); ?>', $content);
 
     // Route with parameters

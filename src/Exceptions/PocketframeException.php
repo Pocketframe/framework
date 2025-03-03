@@ -7,17 +7,21 @@ namespace Pocketframe\Exceptions;
 use Exception;
 use Pocketframe\Contracts\PocketframeExceptionInterface;
 
-class PocketframeException extends Exception implements PocketframeExceptionInterface
+class PocketframeException extends Exception
 {
-  public string $errorType;
-  public function __construct(string $message, int $code = 500, string $errorType = 'error', ?Exception $previous = null)
+  protected array $context;
+
+  public function __construct(string $message = "An error occurred", int $code = 500, array $context = [])
   {
-    parent::__construct($message, $code, $previous);
-    $this->errorType = $errorType;
+    parent::__construct($message, $code);
+    $this->context = $context;
   }
 
-  public function getErrorType(): string
+  /**
+   * Get additional context data for debugging.
+   */
+  public function getContext(): array
   {
-    return $this->errorType;
+    return $this->context;
   }
 }

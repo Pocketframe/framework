@@ -46,7 +46,7 @@ class Response
     public static function view($view, $data = [], $status = self::OK): Response
     {
         $content = View::render($view, $data);
-        return new Response($content, $status);
+        return new self($content, $status, ['Content-Type' => 'text/html']);
     }
 
     /**

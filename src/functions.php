@@ -42,6 +42,18 @@ if (!function_exists('urlIs')) {
     }
 }
 
+if (!function_exists('error')) {
+    /**
+     * Retrieve the error messages for a given field.
+     *
+     * @return string[]
+     */
+    function error(string $field): array
+    {
+        return $_SESSION['errors'][$field] ?? [];
+    }
+}
+
 /**
  * Abort the request with an error page
  *
@@ -95,6 +107,20 @@ if (!function_exists('redirect')) {
         $url = $protocol . '://' . $host . $path;
         header('Location: ' . $url, true, 302);
         exit();
+    }
+}
+
+if (!function_exists('display_errors')) {
+    /**
+     * Display validation error messages for a given field.
+     */
+    function display_errors(string $field): void
+    {
+        if (!empty($_SESSION['errors'][$field])) {
+            foreach ($_SESSION['errors'][$field] as $err) {
+                echo '<div class="error">' . htmlspecialchars($err) . '</div>';
+            }
+        }
     }
 }
 
@@ -211,7 +237,11 @@ if (!function_exists('validateCsrfToken')) {
 if (!function_exists('asset')) {
     function asset(string $path): string
     {
-        return BASE_PATH . 'public/' . ltrim($path, '/');
+        $scheme = $_SERVER['REQUEST_SCHEME'] ?? (
+            (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http'
+        );
+
+        return $scheme . '://' . $_SERVER['HTTP_HOST'] . '/' . ltrim($path, '/');
     }
 }
 

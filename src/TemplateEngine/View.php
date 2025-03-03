@@ -27,4 +27,21 @@ class View
     include $compiledFile;
     return ob_get_clean();
   }
+
+
+
+  /**
+   * Renders a raw PHP file (skipping template compilation).
+   */
+  public static function renderFile(string $filePath, array $data = []): string
+  {
+    if (!file_exists($filePath)) {
+      throw new \RuntimeException("View file not found: {$filePath}");
+    }
+
+    extract($data);
+    ob_start();
+    include $filePath;
+    return ob_get_clean();
+  }
 }

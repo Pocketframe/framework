@@ -254,8 +254,13 @@ class Router
      */
     public function dispatch(Request $request)
     {
-        $method = $request->method();
         $uri = $request->uri();
+
+        if (preg_match('/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|ico)$/', $uri)) {
+            return $this->serveStaticFile($uri);
+        }
+
+        $method = $request->method();
 
         foreach ($this->routes[$method] ?? [] as $route) {
             if (preg_match('#^' . $route['pattern'] . '$#', $uri, $matches)) {
@@ -289,6 +294,42 @@ class Router
         }
 
         return Response::view('errors/' . Response::NOT_FOUND, [], Response::NOT_FOUND);
+    }
+
+
+    /**
+     * Serve static files directly from the public/ directory.
+     */
+    protected function serveStaticFile($uri)
+    {
+        $filePath = BASE_PATH . 'public/' . ltrim($uri, '/');
+
+        if (!file_exists($filePath)) {
+            return Response::view('errors/' . Response::NOT_FOUND, [], Response::NOT_FOUND);
+        }
+
+        // Set correct Content-Type headers
+        $mimeTypes = [
+            'css' => 'text/css',
+            'js' => 'application/javascript',
+            'png' => 'image/png',
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'gif' => 'image/gif',
+            'svg' => 'image/svg+xml',
+            'woff' => 'font/woff',
+            'woff2' => 'font/woff2',
+            'ttf' => 'font/ttf',
+            'eot' => 'application/vnd.ms-fontobject',
+            'ico' => 'image/x-icon'
+        ];
+
+        $extension = pathinfo($filePath, PATHINFO_EXTENSION);
+        $contentType = $mimeTypes[$extension] ?? 'application/octet-stream';
+
+        header('Content-Type: ' . $contentType);
+        readfile($filePath);
+        exit;
     }
 
     /**
