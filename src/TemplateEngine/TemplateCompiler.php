@@ -12,18 +12,19 @@ class TemplateCompiler
   public function __construct(string $templateName, bool $isFrameworkTemplate = false)
   {
     if ($isFrameworkTemplate) {
-      // Points to vendor pocketframe’s error views
-      // Adjust if your real path differs
+      // Points to vendor Pocketframe error views (adjust as needed)
       $this->templatePath = __DIR__ . '/../../resources/views/' . $templateName . '.view.php';
     } else {
-      // Existing user path
+      // User's views
       $this->templatePath = base_path("resources/views/{$templateName}.view.php");
     }
+    // Generate a stable cache filename so the same template doesn't recompile every time.
     $this->compiledPath = base_path("store/framework/views/" . $this->cacheViewName($templateName));
   }
 
   public function compile(): void
   {
+    // Recompile only if the source template is newer than the compiled file.
     if (file_exists($this->compiledPath) && filemtime($this->compiledPath) >= filemtime($this->templatePath)) {
       return;
     }
@@ -43,16 +44,14 @@ class TemplateCompiler
     // Handle template inheritance
     $content = $this->processTemplateInheritance($content);
 
-    // Remove comments
+    // Remove comments (both block and single-line)
     $content = $this->removeComments($content);
 
     // Convert template syntax to PHP
     $content = $this->convertSyntax($content);
 
-    // Ensure all yield placeholders have been replaced
-    if (preg_match('/<%\s*yield\s+(\w+)\s*%>/', $content, $unreplaced)) {
-      throw new Exception("Unreplaced yield block found in compiled template: {$this->compiledPath}. Block: {$unreplaced[1]}");
-    }
+    // Remove any unreplaced yield placeholders (if any remain, replace with empty string)
+    $content = preg_replace('/<%\s*yield\s+\w+\s*%>/', '', $content);
 
     // Write the compiled template to cache
     file_put_contents($this->compiledPath, $content);
@@ -60,15 +59,12 @@ class TemplateCompiler
 
   protected function removeComments(string $content): string
   {
-    // Remove block comments <#-- ... --#>
+    // Remove block comments <#-- ... --#> (multiline)
     $content = preg_replace('/<#--[\s\S]*?--#>/', '', $content);
-
     // Remove single-line comments <%-- ... --%>
     $content = preg_replace('/<%--(.*?)--%>/m', '', $content);
-
     return $content;
   }
-
 
   protected function processTemplateInheritance(string $content): string
   {
@@ -85,10 +81,9 @@ class TemplateCompiler
       if (!file_exists($parentPath)) {
         throw new Exception("Parent template file not found: {$parentPath}");
       }
-
       $parentContent = file_get_contents($parentPath);
 
-      // Replace yield placeholders with child blocks
+      // Replace yield placeholders with child block content
       foreach ($childBlocks as $blockName => $blockContent) {
         $parentContent = preg_replace('/<%\s*yield\s*' . preg_quote($blockName, '/') . '\s*%>/', $blockContent, $parentContent);
       }
@@ -101,8 +96,22 @@ class TemplateCompiler
 
   protected function convertSyntax(string $content): string
   {
-    // Echoing values safely
-    $content = preg_replace('/<%=\s*(.+?)\s*%>/', '<?php echo htmlspecialchars($1, ENT_QUOTES, "UTF-8"); ?>', $content);
+    // Convert echo shorthand using a callback
+    $content = preg_replace_callback('/<%=\s*(.+?)\s*%>/', function ($matches) {
+      $expr = trim($matches[1]);
+      // If the expression starts with "yield", output nothing
+      if (stripos($expr, 'yield') === 0) {
+        return '';
+      }
+      // If the expression starts with "route(", output it raw (unescaped)
+      if (stripos($expr, 'route(') === 0) {
+        return '<?php echo ' . $expr . '; ?>';
+      }
+      // Otherwise, safely echo the expression, defaulting to empty string if null\n
+      return '<?php echo htmlspecialchars((' . $expr . ') ?? \'\', ENT_QUOTES, "UTF-8"); ?>';
+    }, $content);
+
+    // Convert raw echo without escaping
     $content = preg_replace('/<%!\s*(.+?)\s*%>/', '<?php echo $1; ?>', $content);
 
     // Convert control structures
@@ -122,43 +131,24 @@ class TemplateCompiler
       '/<%\s*break\s*%>/' => '<?php break; ?>',
       '/<%\s*endswitch\s*%>/' => '<?php endswitch; ?>'
     ];
-
     foreach ($patterns as $pattern => $replacement) {
       $content = preg_replace($pattern, $replacement, $content);
     }
 
-    // CSRF and method spoofing
+    // CSRF and method spoofing: support both with and without '='\n
+    $content = str_replace('<% csrf_token %>', '<?php echo csrf_token(); ?>', $content);
     $content = str_replace('<%= csrf_token %>', '<?php echo csrf_token(); ?>', $content);
     $content = preg_replace('/<% method\s*(.+?)\s*%>/', '<?php echo method($1); ?>', $content);
 
-    // Route with parameters
+    // Route with parameters for tags written without '=' (if any remain)\n
     $content = preg_replace('/<%\s*route\s*\((.+?)\)\s*%>/', '<?php echo route($1); ?>', $content);
 
-    $content = preg_replace_callback(
-      '/<%\s*(if|foreach|block|method)\s*(\(.*?\))?\s*%>/',
-      function ($matches) {
-        $directive = $matches[1];
-        $condition = $matches[2] ?? '';
-        return "<?php {$directive}{$condition}: ?>";
-      },
-      $content
-    );
-
-    $patterns = [
-      '/>\s+</',             // Remove whitespace between HTML tags
-      '/<(\w+)([^>]*)\/>/'   // Self-closing tags pattern
-    ];
-
-    $replacements = [
-      '><',                   // Replacement for whitespace
-      '<$1$2></$1>'           // Replacement for self-closing tags
-    ];
-
-    $content = preg_replace($patterns, $replacements, $content);
-
+    // Optionally remove extra whitespace between HTML tags\n
+    $content = preg_replace('/>\s+</', '><', $content);
 
     return $content;
   }
+
 
   public function getCompiledPath(): string
   {
@@ -167,6 +157,7 @@ class TemplateCompiler
 
   function cacheViewName(string $viewPath): string
   {
-    return md5($viewPath . microtime(true)) . '.php';
+    // Generate a stable cache filename based solely on the view name
+    return md5($viewPath) . '.php';
   }
 }
