@@ -11,8 +11,8 @@ class Required implements Rule
     return isset($value) && trim((string)$value) !== '';
   }
 
-  public function message(): string
+  public function message(string $field): string
   {
-    return 'This field is required.';
+    return "The field {$field} is required.";
   }
 }

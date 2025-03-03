@@ -8,7 +8,7 @@ interface Rule
 
   /**
    * Returns the error message for this rule.
-   * @return string|string[]
+   * @return string
    */
-  public function message(): string|array;
+  public function message(string $attribute): string;
 }

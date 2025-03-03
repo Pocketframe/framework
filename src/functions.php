@@ -43,14 +43,13 @@ if (!function_exists('urlIs')) {
 }
 
 if (!function_exists('error')) {
-    /**
-     * Retrieve the error messages for a given field.
-     *
-     * @return string[]
-     */
     function error(string $field): array
     {
-        return $_SESSION['errors'][$field] ?? [];
+        $errors = $_SESSION['errors'][$field] ?? [];
+
+        unset($_SESSION['errors'][$field]);
+
+        return $errors;
     }
 }
 
@@ -111,15 +110,15 @@ if (!function_exists('redirect')) {
 }
 
 if (!function_exists('display_errors')) {
-    /**
-     * Display validation error messages for a given field.
-     */
     function display_errors(string $field): void
     {
         if (!empty($_SESSION['errors'][$field])) {
             foreach ($_SESSION['errors'][$field] as $err) {
                 echo '<div class="error">' . htmlspecialchars($err) . '</div>';
             }
+
+            // Clear the displayed errors
+            unset($_SESSION['errors'][$field]);
         }
     }
 }
@@ -136,7 +135,12 @@ if (!function_exists('display_errors')) {
 if (!function_exists('old')) {
     function old(string $key, $default = null)
     {
-        return Session::get('old')[$key] ?? $default;
+        $value = $_SESSION['old'][$key] ?? $default;
+
+        // Clear old input after retrieving it
+        unset($_SESSION['old'][$key]);
+
+        return $value;
     }
 }
 
