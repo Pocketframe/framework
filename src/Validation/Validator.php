@@ -1,17 +1,35 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Pocketframe\Validation;
 
 class Validator
 {
-    public static function string($value, $min = 1, $max = INF)
-    {
-        $value = trim($value);
-        return strlen($value) >= $min && strlen($value) <= $max;
+  private array $errors = [];
+
+  public function validate(array $data, array $rules): self
+  {
+    $this->errors = [];
+
+    foreach ($rules as $field => $ruleSet) {
+      foreach ($ruleSet as $rule) {
+        if (!$rule->isValid($data[$field] ?? '')) {
+          $this->errors[$field][] = $rule->message();
+        }
+      }
     }
 
-    public static function email(string $value): bool
-    {
-        return filter_var($value, FILTER_VALIDATE_EMAIL);
+    $_SESSION['errors'] = $this->errors;
+    return $this;
+  }
+
+  public function failed(): bool
+  {
+    if (!empty($this->errors)) {
+      header("Location: " . $_SERVER['HTTP_REFERER']);
+      exit;
     }
+    return false;
+  }
 }
