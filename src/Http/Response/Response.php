@@ -2,6 +2,7 @@
 
 namespace Pocketframe\Http\Response;
 
+use Pocketframe\Sessions\Session;
 use Pocketframe\TemplateEngine\View;
 use RuntimeException;
 
@@ -92,9 +93,24 @@ class Response
      * @param int $status The HTTP status code to set
      * @return self The new Response object
      */
-    public static function redirect(string $url, int $status = self::REDIRECT): self
+    public static function redirect(string $url, int $status = self::REDIRECT, array $sessionData = []): self
     {
+        unset($_SESSION['old']);
+
         return new static('', $status, ['Location' => $url]);
+    }
+
+    /**
+     * Attach session data to the response
+     *
+     * @param string $key The session key
+     * @param string $value The session value
+     * @return self
+     */
+    public function withSession(string $key, string $value): self
+    {
+        Session::flash($key, $value);
+        return $this;
     }
 
     /**
