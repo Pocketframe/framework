@@ -99,11 +99,14 @@ if (!function_exists('authorize')) {
 if (!function_exists('redirect')) {
     function redirect(string $path)
     {
+        unset($_SESSION['old']);
+
         $path = '/' . ltrim($path, '/');
         $path = str_replace(["\r", "\n"], '', $path);
         $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
         $host = $_SERVER['HTTP_HOST'];
         $url = $protocol . '://' . $host . $path;
+
         header('Location: ' . $url, true, 302);
         exit();
     }
@@ -114,7 +117,7 @@ if (!function_exists('display_errors')) {
     {
         if (!empty($_SESSION['errors'][$field])) {
             foreach ($_SESSION['errors'][$field] as $err) {
-                echo '<div class="error">' . htmlspecialchars($err) . '</div>';
+                echo '<div class="error" style="color: red; margin-top: 2px;">' . htmlspecialchars($err) . '</div>';
             }
 
             // Clear the displayed errors
@@ -135,14 +138,19 @@ if (!function_exists('display_errors')) {
 if (!function_exists('old')) {
     function old(string $key, $default = null)
     {
+        static $cleared = false;
+
         $value = $_SESSION['old'][$key] ?? $default;
 
-        // Clear old input after retrieving it
-        unset($_SESSION['old'][$key]);
+        if (!$cleared) {
+            unset($_SESSION['old']);
+            $cleared = true;
+        }
 
         return $value;
     }
 }
+
 
 /**
  * Get environment variable
@@ -431,5 +439,44 @@ if (!function_exists('route')) {
         }
 
         return $router->route($name, $params);
+    }
+}
+
+
+/**
+ * Get flash message helper instance
+ *
+ * This function returns an anonymous class instance that provides methods for
+ * setting flash messages in the session. Flash messages are temporary messages
+ * that persist for only one request cycle and are commonly used to display
+ * success/error notifications to users after form submissions or other actions.
+ *
+ * Example usage:
+ * flash()->success('Operation completed successfully');
+ * flash()->error('An error occurred');
+ *
+ * @return object Anonymous class with success() and error() methods for setting flash messages
+ */
+if (!function_exists('flash')) {
+    function flash()
+    {
+        return new class {
+            public function success($message)
+            {
+                Session::flash('success', $message);
+            }
+
+            public function error($message)
+            {
+                Session::flash('error', $message);
+            }
+        };
+    }
+}
+
+if (!function_exists('session')) {
+    function session(string $key, $default = null)
+    {
+        return Pocketframe\Sessions\Session::get($key, $default);
     }
 }
