@@ -28,14 +28,22 @@ class Session
 
     public static function get($key, $default = null)
     {
-        return $_SESSION['_flash'][$key] ?? $_SESSION[$key] ?? $default;
+        if (isset($_SESSION['_flash'][$key])) {
+            $value = $_SESSION['_flash'][$key];
+            unset($_SESSION['_flash'][$key]);
+            return $value;
+        }
+
+        return $_SESSION[$key] ?? $default;
     }
 
     public static function flash($key, $value)
     {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         $_SESSION['_flash'][$key] = $value;
     }
-
     public static function flush()
     {
         $_SESSION = [];
