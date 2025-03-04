@@ -7,6 +7,7 @@ use Pocketframe\Container\Container;
 use Pocketframe\Http\Request\Request;
 use Pocketframe\Http\Response\Response;
 use InvalidArgumentException;
+use Pocketframe\TemplateEngine\View;
 use ReflectionMethod;
 
 class Router
@@ -293,7 +294,9 @@ class Router
             }
         }
 
-        return Response::view('errors/' . Response::NOT_FOUND, [], Response::NOT_FOUND);
+        $content = View::renderFile(__DIR__ . '/../resources/views/errors/' . Response::NOT_FOUND . '.view.php');
+
+        return new Response($content, Response::NOT_FOUND, ['Content-Type' => 'text/html']);
     }
 
 
