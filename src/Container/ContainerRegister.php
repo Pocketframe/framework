@@ -18,7 +18,7 @@ class ContainerRegister
     // Bind the Handler class with its dependencies
     $container->bind(Handler::class, function () use ($container) {
       return new Handler(
-        $container->get(Logger::class), // Resolve Logger dependency
+        $container->get(Logger::class),
       );
     });
 
