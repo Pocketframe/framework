@@ -20,10 +20,10 @@ use Pocketframe\Routing\Router;
  * @return string The absolute path from base directory
  */
 if (!function_exists('base_path')) {
-    function base_path(string $path = ''): string
-    {
-        return BASE_PATH . $path;
-    }
+  function base_path(string $path = ''): string
+  {
+    return BASE_PATH . $path;
+  }
 }
 
 /**
@@ -35,22 +35,22 @@ if (!function_exists('base_path')) {
  * @return bool True if current URL matches, false otherwise
  */
 if (!function_exists('urlIs')) {
-    function urlIs(string $value): bool
-    {
-        $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-        return $uri === $value;
-    }
+  function urlIs(string $value): bool
+  {
+    $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    return $uri === $value;
+  }
 }
 
 if (!function_exists('error')) {
-    function error(string $field): array
-    {
-        $errors = $_SESSION['errors'][$field] ?? [];
+  function error(string $field): array
+  {
+    $errors = $_SESSION['errors'][$field] ?? [];
 
-        unset($_SESSION['errors'][$field]);
+    unset($_SESSION['errors'][$field]);
 
-        return $errors;
-    }
+    return $errors;
+  }
 }
 
 /**
@@ -62,12 +62,12 @@ if (!function_exists('error')) {
  * @return void Dies after displaying error page
  */
 if (!function_exists('abort')) {
-    function abort(int $code = Response::NOT_FOUND)
-    {
-        http_response_code($code);
-        require "views/errors/{$code}.php";
-        die();
-    }
+  function abort(int $code = Response::NOT_FOUND)
+  {
+    http_response_code($code);
+    require "views/errors/{$code}.php";
+    die();
+  }
 }
 
 /**
@@ -80,12 +80,12 @@ if (!function_exists('abort')) {
  * @return void Aborts if condition is false
  */
 if (!function_exists('authorize')) {
-    function authorize(bool $condition, int $status = Response::FORBIDDEN)
-    {
-        if (!$condition) {
-            abort($status);
-        }
+  function authorize(bool $condition, int $status = Response::FORBIDDEN)
+  {
+    if (!$condition) {
+      abort($status);
     }
+  }
 }
 
 /**
@@ -97,33 +97,33 @@ if (!function_exists('authorize')) {
  * @return void Dies after sending redirect header
  */
 if (!function_exists('redirect')) {
-    function redirect(string $path)
-    {
-        unset($_SESSION['old']);
+  function redirect(string $path)
+  {
+    unset($_SESSION['old']);
 
-        $path = '/' . ltrim($path, '/');
-        $path = str_replace(["\r", "\n"], '', $path);
-        $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'];
-        $url = $protocol . '://' . $host . $path;
+    $path = '/' . ltrim($path, '/');
+    $path = str_replace(["\r", "\n"], '', $path);
+    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'];
+    $url = $protocol . '://' . $host . $path;
 
-        header('Location: ' . $url, true, 302);
-        exit();
-    }
+    header('Location: ' . $url, true, 302);
+    exit();
+  }
 }
 
 if (!function_exists('display_errors')) {
-    function display_errors(string $field): void
-    {
-        if (!empty($_SESSION['errors'][$field])) {
-            foreach ($_SESSION['errors'][$field] as $err) {
-                echo '<div class="error" style="color: red; margin-top: 2px;">' . htmlspecialchars($err) . '</div>';
-            }
+  function display_errors(string $field): void
+  {
+    if (!empty($_SESSION['errors'][$field])) {
+      foreach ($_SESSION['errors'][$field] as $err) {
+        echo '<div class="error" style="color: red; margin-top: 2px;">' . htmlspecialchars($err) . '</div>';
+      }
 
-            // Clear the displayed errors
-            unset($_SESSION['errors'][$field]);
-        }
+      // Clear the displayed errors
+      unset($_SESSION['errors'][$field]);
     }
+  }
 }
 
 /**
@@ -136,19 +136,19 @@ if (!function_exists('display_errors')) {
  * @return mixed The old input value or default
  */
 if (!function_exists('old')) {
-    function old(string $key, $default = null)
-    {
-        static $cleared = false;
+  function old(string $key, $default = null)
+  {
+    static $cleared = false;
 
-        $value = $_SESSION['old'][$key] ?? $default;
+    $value = $_SESSION['old'][$key] ?? $default;
 
-        if (!$cleared) {
-            unset($_SESSION['old']);
-            $cleared = true;
-        }
-
-        return $value;
+    if (!$cleared) {
+      unset($_SESSION['old']);
+      $cleared = true;
     }
+
+    return $value;
+  }
 }
 
 
@@ -162,11 +162,11 @@ if (!function_exists('old')) {
  * @return mixed The environment variable value or default
  */
 if (!function_exists('env')) {
-    function env(string $key, $default = null)
-    {
-        $value = getenv($key);
-        return $value !== false ? $value : $default;
-    }
+  function env(string $key, $default = null)
+  {
+    $value = getenv($key);
+    return $value !== false ? $value : $default;
+  }
 }
 
 /**
@@ -178,11 +178,11 @@ if (!function_exists('env')) {
  * @return string The number in words
  */
 if (!function_exists('numberToWords')) {
-    function numberToWords(int $value): string
-    {
-        $words = new NumberFormatter("en", NumberFormatter::SPELLOUT);
-        return ucwords($words->format($value));
-    }
+  function numberToWords(int $value): string
+  {
+    $words = new NumberFormatter("en", NumberFormatter::SPELLOUT);
+    return ucwords($words->format($value));
+  }
 }
 
 /**
@@ -193,23 +193,23 @@ if (!function_exists('numberToWords')) {
  * @return string The generated CSRF token
  */
 if (!function_exists('csrfToken')) {
-    function csrfToken(): string
-    {
-        if (!isset($_SESSION)) {
-            session_start();
-        }
-
-        if (empty($_SESSION['csrf_token'])) {
-            try {
-                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-            } catch (Exception $e) {
-                // Fallback to less secure but still random token if random_bytes fails
-                $_SESSION['csrf_token'] = bin2hex(openssl_random_pseudo_bytes(32));
-            }
-        }
-
-        return $_SESSION['csrf_token'];
+  function csrfToken(): string
+  {
+    if (!isset($_SESSION)) {
+      session_start();
     }
+
+    if (empty($_SESSION['csrf_token'])) {
+      try {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+      } catch (Exception $e) {
+        // Fallback to less secure but still random token if random_bytes fails
+        $_SESSION['csrf_token'] = bin2hex(openssl_random_pseudo_bytes(32));
+      }
+    }
+
+    return $_SESSION['csrf_token'];
+  }
 }
 
 /**
@@ -221,21 +221,21 @@ if (!function_exists('csrfToken')) {
  * @return bool True if token is valid, false otherwise
  */
 if (!function_exists('validateCsrfToken')) {
-    function validateCsrfToken(string $token): bool
-    {
-        if (!isset($_SESSION)) {
-            session_start();
-        }
-
-        if (empty($token)) {
-            return false;
-        }
-
-        return isset($_SESSION['csrf_token']) &&
-            is_string($_SESSION['csrf_token']) &&
-            is_string($token) &&
-            hash_equals($_SESSION['csrf_token'], $token);
+  function validateCsrfToken(string $token): bool
+  {
+    if (!isset($_SESSION)) {
+      session_start();
     }
+
+    if (empty($token)) {
+      return false;
+    }
+
+    return isset($_SESSION['csrf_token']) &&
+      is_string($_SESSION['csrf_token']) &&
+      is_string($token) &&
+      hash_equals($_SESSION['csrf_token'], $token);
+  }
 }
 
 /**
@@ -247,14 +247,14 @@ if (!function_exists('validateCsrfToken')) {
  * @return string The full path to the asset
  */
 if (!function_exists('asset')) {
-    function asset(string $path): string
-    {
-        $scheme = $_SERVER['REQUEST_SCHEME'] ?? (
-            (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http'
-        );
+  function asset(string $path): string
+  {
+    $scheme = $_SERVER['REQUEST_SCHEME'] ?? (
+      (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http'
+    );
 
-        return $scheme . '://' . $_SERVER['HTTP_HOST'] . '/' . ltrim($path, '/');
-    }
+    return $scheme . '://' . $_SERVER['HTTP_HOST'] . '/' . ltrim($path, '/');
+  }
 }
 
 /**
@@ -266,48 +266,48 @@ if (!function_exists('asset')) {
  * @return string The sanitized string
  */
 if (!function_exists('sanitize')) {
-    function sanitize(?string $string): string
+  function sanitize(?string $string): string
+  {
+    return htmlspecialchars(trim($string), ENT_QUOTES, 'UTF-8');
+  }
+
+  /**
+   * Generate a method field
+   *
+   * This function generates a method field for HTML forms.
+   *
+   * @param string $method The HTTP method to generate the field for
+   * @return string The generated method field
+   */
+  if (!function_exists('method')) {
+    function method(string $method): string
     {
-        return htmlspecialchars(trim($string), ENT_QUOTES, 'UTF-8');
+      return '<input type="hidden" name="_method" value="' . $method . '">';
     }
+  }
 
-    /**
-     * Generate a method field
-     *
-     * This function generates a method field for HTML forms.
-     *
-     * @param string $method The HTTP method to generate the field for
-     * @return string The generated method field
-     */
-    if (!function_exists('method')) {
-        function method(string $method): string
-        {
-            return '<input type="hidden" name="_method" value="' . $method . '">';
-        }
+  /**
+   * Generate a CSRF field
+   *
+   * This function generates a CSRF field for HTML forms.
+   *
+   * @return string The generated CSRF field
+   */
+  if (!function_exists('csrf_token')) {
+    function csrf_token(): string
+    {
+      if (!isset($_SESSION)) {
+        session_start();
+      }
+
+      // Ensure the CSRF token is generated before accessing it
+      if (empty($_SESSION['csrf_token'])) {
+        csrfToken();
+      }
+
+      return '<input type="hidden" name="_token" value="' . $_SESSION['csrf_token'] . '">';
     }
-
-    /**
-     * Generate a CSRF field
-     *
-     * This function generates a CSRF field for HTML forms.
-     *
-     * @return string The generated CSRF field
-     */
-    if (!function_exists('csrf_token')) {
-        function csrf_token(): string
-        {
-            if (!isset($_SESSION)) {
-                session_start();
-            }
-
-            // Ensure the CSRF token is generated before accessing it
-            if (empty($_SESSION['csrf_token'])) {
-                csrfToken();
-            }
-
-            return '<input type="hidden" name="_token" value="' . $_SESSION['csrf_token'] . '">';
-        }
-    }
+  }
 }
 
 /**
@@ -319,10 +319,10 @@ if (!function_exists('sanitize')) {
  * @return string The full path to the configuration file
  */
 if (!function_exists('config_path')) {
-    function config_path(string $path = ''): string
-    {
-        return base_path('config/' . $path . '.php');
-    }
+  function config_path(string $path = ''): string
+  {
+    return base_path('config/' . $path . '.php');
+  }
 }
 
 /**
@@ -335,28 +335,28 @@ if (!function_exists('config_path')) {
  * @return mixed The configuration value or default
  */
 if (!function_exists('config')) {
-    function config($key, $default = null)
-    {
-        static $config;
+  function config($key, $default = null)
+  {
+    static $config;
 
-        if (!$config) {
-            // $config = require BASE_PATH . '/config/app.php';
-            $config = require config_path('app');
-        }
-
-        // Support dot notation like "app.debug"
-        $keys = explode('.', $key);
-        $value = $config;
-
-        foreach ($keys as $key) {
-            if (!is_array($value) || !isset($value[$key])) {
-                return $default;
-            }
-            $value = $value[$key];
-        }
-
-        return $value;
+    if (!$config) {
+      // $config = require BASE_PATH . '/config/app.php';
+      $config = require config_path('app');
     }
+
+    // Support dot notation like "app.debug"
+    $keys = explode('.', $key);
+    $value = $config;
+
+    foreach ($keys as $key) {
+      if (!is_array($value) || !isset($value[$key])) {
+        return $default;
+      }
+      $value = $value[$key];
+    }
+
+    return $value;
+  }
 }
 
 
@@ -369,10 +369,10 @@ if (!function_exists('config')) {
  * @return string The full path to the routes file
  */
 if (!function_exists('routes_path')) {
-    function routes_path(string $path = ''): string
-    {
-        return base_path('routes/' . $path . '.php');
-    }
+  function routes_path(string $path = ''): string
+  {
+    return base_path('routes/' . $path . '.php');
+  }
 }
 
 /**
@@ -383,19 +383,19 @@ if (!function_exists('routes_path')) {
  * @param string $path The path to the environment file
  */
 if (!function_exists('load_env')) {
-    function load_env($path)
-    {
-        if (!file_exists($path)) {
-            return;
-        }
-
-        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        foreach ($lines as $line) {
-            if (strpos(trim($line), '#') === 0) continue;
-            list($name, $value) = explode('=', $line, 2);
-            putenv(trim($name) . '=' . trim($value));
-        }
+  function load_env($path)
+  {
+    if (!file_exists($path)) {
+      return;
     }
+
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+      if (strpos(trim($line), '#') === 0) continue;
+      list($name, $value) = explode('=', $line, 2);
+      putenv(trim($name) . '=' . trim($value));
+    }
+  }
 }
 
 /**
@@ -408,13 +408,13 @@ if (!function_exists('load_env')) {
  * @return void
  */
 if (!function_exists('error_reporting')) {
-    function error_report()
-    {
-        error_reporting(E_ALL);
-        ini_set('display_errors', '1');
-        ini_set('display_startup_errors', '1');
-        ini_set('error_log', base_path('logs/pocketframe.log'));
-    }
+  function error_report()
+  {
+    error_reporting(E_ALL);
+    ini_set('display_errors', '1');
+    ini_set('display_startup_errors', '1');
+    ini_set('error_log', base_path('logs/pocketframe.log'));
+  }
 }
 
 
@@ -430,16 +430,16 @@ if (!function_exists('error_reporting')) {
  * @return string The generated URL for the named route
  */
 if (!function_exists('route')) {
-    function route(string $name, array $params = []): string
-    {
-        global $router;
+  function route(string $name, array $params = []): string
+  {
+    global $router;
 
-        if (!isset($router)) {
-            throw new InvalidArgumentException("Router instance not available.");
-        }
-
-        return $router->route($name, $params);
+    if (!isset($router)) {
+      throw new InvalidArgumentException("Router instance not available.");
     }
+
+    return $router->route($name, $params);
+  }
 }
 
 
@@ -458,25 +458,33 @@ if (!function_exists('route')) {
  * @return object Anonymous class with success() and error() methods for setting flash messages
  */
 if (!function_exists('flash')) {
-    function flash()
-    {
-        return new class {
-            public function success($message)
-            {
-                Session::flash('success', $message);
-            }
+  function flash()
+  {
+    return new class {
+      public function success($message)
+      {
+        Session::flash('success', $message);
+      }
 
-            public function error($message)
-            {
-                Session::flash('error', $message);
-            }
-        };
-    }
+      public function error($message)
+      {
+        Session::flash('error', $message);
+      }
+    };
+  }
 }
 
 if (!function_exists('session')) {
-    function session(string $key, $default = null)
-    {
-        return Pocketframe\Sessions\Session::get($key, $default);
-    }
+  function session(string $key, $default = null)
+  {
+    return Pocketframe\Sessions\Session::get($key, $default);
+  }
+}
+
+if (!function_exists('iterator')) {
+  function iterator()
+  {
+    static $count = 0;
+    return ++$count;
+  }
 }
