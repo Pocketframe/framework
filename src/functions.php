@@ -119,8 +119,7 @@ if (!function_exists('display_errors')) {
       foreach ($_SESSION['errors'][$field] as $err) {
         echo '<div class="error" style="color: red; margin-top: 2px;">' . htmlspecialchars($err) . '</div>';
       }
-
-      // Clear the displayed errors
+      // Clear errors for that field
       unset($_SESSION['errors'][$field]);
     }
   }
@@ -270,45 +269,52 @@ if (!function_exists('sanitize')) {
   {
     return htmlspecialchars(trim($string), ENT_QUOTES, 'UTF-8');
   }
-
-  /**
-   * Generate a method field
-   *
-   * This function generates a method field for HTML forms.
-   *
-   * @param string $method The HTTP method to generate the field for
-   * @return string The generated method field
-   */
-  if (!function_exists('method')) {
-    function method(string $method): string
-    {
-      return '<input type="hidden" name="_method" value="' . $method . '">';
-    }
-  }
-
-  /**
-   * Generate a CSRF field
-   *
-   * This function generates a CSRF field for HTML forms.
-   *
-   * @return string The generated CSRF field
-   */
-  if (!function_exists('csrf_token')) {
-    function csrf_token(): string
-    {
-      if (!isset($_SESSION)) {
-        session_start();
-      }
-
-      // Ensure the CSRF token is generated before accessing it
-      if (empty($_SESSION['csrf_token'])) {
-        csrfToken();
-      }
-
-      return '<input type="hidden" name="_token" value="' . $_SESSION['csrf_token'] . '">';
-    }
+}
+/**
+ * Generate a method field
+ *
+ * This function generates a method field for HTML forms.
+ *
+ * @param string $method The HTTP method to generate the field for
+ * @return string The generated method field
+ */
+if (!function_exists('method')) {
+  function method(string $method): string
+  {
+    return '<input type="hidden" name="_method" value="' . $method . '">';
   }
 }
+
+/**
+ * Generate a CSRF field
+ *
+ * This function generates a CSRF field for HTML forms.
+ *
+ * @return string The generated CSRF field
+ */
+if (!function_exists('csrf_token')) {
+  function csrf_token(): string
+  {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+      session_start();
+    }
+
+    // Generate a CSRF token if one does not exist.
+    if (empty($_SESSION['csrf_token'])) {
+      $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    return '<input type="hidden" name="_token" value="' . $_SESSION['csrf_token'] . '">';
+  }
+}
+
+if (!function_exists('_token')) {
+  function _token()
+  {
+    return $_SESSION["csrf_token"];
+  }
+}
+
 
 /**
  * Get the full path to a configuration file
