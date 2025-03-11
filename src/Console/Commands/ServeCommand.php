@@ -1,22 +1,42 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Pocketframe\Console\Commands;
 
-class ServeCommand
+use Pocketframe\Contracts\CommandInterface;
+
+class ServeCommand implements CommandInterface
 {
+  protected array $args;
+
+  public function __construct(array $args)
+  {
+    $this->args = $args;
+  }
+
+  // Helper function to check if a port is available
+  protected function isPortAvailable(string $host, int $port): bool
+  {
+    $connection = @fsockopen($host, $port, $errno, $errstr, 1);
+    if (is_resource($connection)) {
+      fclose($connection);
+      return false;
+    }
+    return true;
+  }
+
   public function handle(): void
   {
-    $host = '127.0.0.1';
-    $port = '8000';
-    $root = '.';
-    $index = 'index.php';
+    // Usage: php pocket serve [port] [host]
+    $port = 8000;
+    $host = $this->args[1] ?? '127.0.0.1';
+    $docRoot = 'public';
 
-    echo "Starting server at http://{$host}:{$port}\n";
-    echo "Press Ctrl+C to stop the server.\n";
+    while (!$this->isPortAvailable($host, $port)) {
+      echo "Port {$port} is in use. Trying port " . ($port + 1) . "...\n";
+      $port++;
+    }
 
-    $command = sprintf('php -S %s:%s -t %s %s', $host, $port, $root, $index);
-    passthru($command);
+    echo "Starting server on http://{$host}:{$port}\n";
+    passthru("php -S {$host}:{$port} -t {$docRoot} index.php");
   }
 }

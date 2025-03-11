@@ -1,0 +1,20 @@
+<?php
+
+namespace {{namespace}};
+
+class {{middlewareName}}
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param \Pocketframe\Http\Request\Request $request
+     * @param callable $next
+     * @return mixed
+     */
+    public function handle($request, callable $next)
+    {
+        // Your middleware logic here.
+
+        return $next($request);
+    }
+}

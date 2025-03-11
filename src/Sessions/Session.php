@@ -11,6 +11,13 @@ class Session
         $this->data = $data;
     }
 
+    public static function start(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+    }
+
     public function all(): array
     {
         return $this->data;
@@ -28,6 +35,8 @@ class Session
 
     public static function get($key, $default = null)
     {
+        static::start();
+
         if (isset($_SESSION['_flash'][$key])) {
             $value = $_SESSION['_flash'][$key];
             unset($_SESSION['_flash'][$key]);
