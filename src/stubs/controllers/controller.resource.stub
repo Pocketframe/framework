@@ -1,0 +1,88 @@
+<?php
+
+namespace {{namespace}};
+
+use Pocketframe\Http\Request\Request;
+use Pocketframe\Http\Response\Response;
+
+class {{controllerName}}
+{
+    /**
+     * Display a listing of the resources.
+     *
+     * @return Response The HTTP response containing the list of resources.
+     */
+    public function index()
+    {
+        // List resources
+    }
+
+    /**
+     * Show the form for creating a new resource.
+     *
+     * @return Response The HTTP response containing the creation form.
+     */
+    public function create()
+    {
+        // Show form for creating a resource
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     *
+     * @param Request $request The HTTP request instance containing resource data.
+     * @return Response The HTTP response after storing the resource.
+     */
+    public function store(Request $request)
+    {
+        // Store a newly created resource
+    }
+
+    /**
+     * Display the specified resource.
+     *
+     * @param Request $request The HTTP request instance.
+     * @param mixed $id The unique identifier of the resource.
+     * @return Response The HTTP response containing the resource details.
+     */
+    public function show(Request $request, $id)
+    {
+        // Display a specific resource
+    }
+
+    /**
+     * Show the form for editing the specified resource.
+     *
+     * @param Request $request The HTTP request instance.
+     * @param mixed $id The unique identifier of the resource.
+     * @return Response The HTTP response containing the edit form.
+     */
+    public function edit(Request $request, $id)
+    {
+        // Show form for editing the specified resource
+    }
+
+    /**
+     * Update the specified resource in storage.
+     *
+     * @param Request $request The HTTP request instance containing updated data.
+     * @param mixed $id The unique identifier of the resource.
+     * @return Response The HTTP response after updating the resource.
+     */
+    public function update(Request $request, $id)
+    {
+        // Update the specified resource
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     *
+     * @param Request $request The HTTP request instance.
+     * @param mixed $id The unique identifier of the resource.
+     * @return Response The HTTP response after deleting the resource.
+     */
+    public function destroy(Request $request, $id)
+    {
+        // Remove the specified resource
+    }
+}
