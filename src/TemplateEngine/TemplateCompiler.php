@@ -96,6 +96,11 @@ class TemplateCompiler
 
   protected function convertSyntax(string $content): string
   {
+    // Convert plain PHP blocks: <% php %> ... <% endphp %>
+    $content = preg_replace_callback('/<%\s*php\s*%>(.*?)<%\s*endphp\s*%>/s', function ($matches) {
+      return '<?php ' . $matches[1] . ' ?>';
+    }, $content);
+
     // Convert echo shorthand using a callback
     $content = preg_replace_callback('/<%=\s*(.+?)\s*%>/', function ($matches) {
       $expr = trim($matches[1]);
@@ -129,7 +134,7 @@ class TemplateCompiler
       '/<%\s*switch\s*\((.+?)\)\s*%>/' => '<?php switch ($1): ?>',
       '/<%\s*case\s+(.+?)\s*%>/' => '<?php case $1: ?>',
       '/<%\s*break\s*%>/' => '<?php break; ?>',
-      '/<%\s*endswitch\s*%>/' => '<?php endswitch; ?>'
+      '/<%\s*endswitch\s*%>/' => '<?php endswitch; ?>',
     ];
     foreach ($patterns as $pattern => $replacement) {
       $content = preg_replace($pattern, $replacement, $content);
