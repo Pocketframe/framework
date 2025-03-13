@@ -5,10 +5,19 @@ declare(strict_types=1);
 namespace Pocketframe\Validation;
 
 use Pocketframe\Contracts\Rule;
+use Pocketframe\Validation\Rules\DateRule;
 use Pocketframe\Validation\Rules\EmailRule;
+use Pocketframe\Validation\Rules\FileRule;
+use Pocketframe\Validation\Rules\ImageRule;
+use Pocketframe\Validation\Rules\LowercaseRule;
+use Pocketframe\Validation\Rules\MaxRule;
+use Pocketframe\Validation\Rules\MinRule;
+use Pocketframe\Validation\Rules\NullableRule;
 use Pocketframe\Validation\Rules\NumericRule;
 use Pocketframe\Validation\Rules\RequiredRule;
+use Pocketframe\Validation\Rules\SometimesRule;
 use Pocketframe\Validation\Rules\StringRule;
+use Pocketframe\Validation\Rules\UppercaseRule;
 
 class Validator
 {
@@ -23,7 +32,7 @@ class Validator
    * Validate the provided data against the rules.
    *
    * @param array $data
-   * @param array $rules An associative array: e.g. 'title' => ['required', 'string']
+   * @param array $rules An associative array: e.g. 'title' => ['required', 'string', 'min:3', 'max:10']
    * @return self
    */
   public function validate(array $data, array $rules): self
@@ -32,21 +41,49 @@ class Validator
 
     // Mapping of string rule names to their corresponding classes.
     $ruleMapping = [
-      'required' => RequiredRule::class,
-      'string'   => StringRule::class,
-      'numeric'  => NumericRule::class,
-      'email'    => EmailRule::class,
+      'required'  => RequiredRule::class,
+      'string'    => StringRule::class,
+      'numeric'   => NumericRule::class,
+      'email'     => EmailRule::class,
+      'min'       => MinRule::class,
+      'max'       => MaxRule::class,
+      'date'      => DateRule::class,
+      'image'     => ImageRule::class,
+      'nullable'  => NullableRule::class,
+      'lowercase' => LowercaseRule::class,
+      'uppercase' => UppercaseRule::class,
+      'sometimes' => SometimesRule::class,
+      'file'      => FileRule::class,
     ];
 
     foreach ($rules as $field => $ruleSet) {
       // For each field, run validations in order and stop on the first failure.
       foreach ($ruleSet as $rule) {
-        // If the rule is provided as a string, instantiate it.
+        // If the rule is provided as a string, instantiate it (with parameters if provided).
         if (is_string($rule)) {
-          if (isset($ruleMapping[$rule])) {
-            $rule = new $ruleMapping[$rule]();
+          // Check if the rule contains parameters (e.g., "min:3")
+          if (strpos($rule, ':') !== false) {
+            [$ruleName, $paramStr] = explode(':', $rule, 2);
+            // Support multiple parameters if needed (comma separated), here we use only the first.
+            $params = explode(',', $paramStr);
           } else {
-            throw new \Exception("No rule mapping defined for: {$rule}");
+            $ruleName = $rule;
+            $params = [];
+          }
+
+          if (isset($ruleMapping[$ruleName])) {
+            // Instantiate the rule. If there are parameters, cast them to the appropriate type.
+            if (!empty($params)) {
+              // Assume a single parameter for now.
+              $param = trim($params[0]);
+              // Cast to float if a decimal point is found; otherwise, to int.
+              $param = (strpos($param, '.') !== false) ? (float)$param : (int)$param;
+              $rule = new $ruleMapping[$ruleName]($param);
+            } else {
+              $rule = new $ruleMapping[$ruleName]();
+            }
+          } else {
+            throw new \Exception("No rule mapping defined for: {$ruleName}");
           }
         }
 
