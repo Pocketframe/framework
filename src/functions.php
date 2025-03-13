@@ -331,34 +331,41 @@ if (!function_exists('config_path')) {
   }
 }
 
-/**
- * Get a configuration value
- *
- * This function retrieves a configuration value from the configuration file.
- *
- * @param string $key The configuration key
- * @param mixed $default The default value if the key is not found
- * @return mixed The configuration value or default
- */
 if (!function_exists('config')) {
-  function config($key, $default = null)
+  /**
+   * Get a configuration value using dot notation.
+   *
+   * This helper loads all configuration files (if not already loaded) and caches
+   * them in a static variable so that you can access any configuration using a key
+   * like "filesystem.disks.public.root" or "app.debug".
+   *
+   * @param string $key     The configuration key (using dot notation, e.g. "app.debug")
+   * @param mixed  $default Default value if the key is not found.
+   * @return mixed
+   */
+  function config(string $key, $default = null)
   {
-    static $config;
+    static $configs;
 
-    if (!$config) {
-      // $config = require BASE_PATH . '/config/app.php';
-      $config = require config_path('app');
+    // Load all config files only once.
+    if (!$configs) {
+      $configs = [];
+      // Adjust BASE_PATH as needed. This assumes config files are in BASE_PATH/config/
+      foreach (glob(base_path('config/*.php')) as $file) {
+        // Use the filename (without extension) as the key
+        $name = basename($file, '.php');
+        $configs[$name] = require $file;
+      }
     }
 
-    // Support dot notation like "app.debug"
+    // Use dot notation to get the desired config value.
     $keys = explode('.', $key);
-    $value = $config;
-
-    foreach ($keys as $key) {
-      if (!is_array($value) || !isset($value[$key])) {
+    $value = $configs;
+    foreach ($keys as $segment) {
+      if (!is_array($value) || !array_key_exists($segment, $value)) {
         return $default;
       }
-      $value = $value[$key];
+      $value = $value[$segment];
     }
 
     return $value;
@@ -380,6 +387,24 @@ if (!function_exists('routes_path')) {
     return base_path('routes/' . $path . '.php');
   }
 }
+
+/**
+ *  Get the full path to the storage directory
+ *
+ * This function returns the full path to the storage directory by appending the storage path to the base path.
+ *
+ *
+ * @param string $path The relative path to the view file
+ * @return string The full path to the view file
+ *
+ */
+if (!function_exists('storage_path')) {
+  function storage_path(string $path = ''): string
+  {
+    return base_path('store/' . $path);
+  }
+}
+
 
 /**
  * Load environment variables from a file
