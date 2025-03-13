@@ -24,10 +24,24 @@ class TemplateCompiler
 
   public function compile(): void
   {
+    // check if the environment is local
     // Recompile only if the source template is newer than the compiled file.
-    if (file_exists($this->compiledPath) && filemtime($this->compiledPath) >= filemtime($this->templatePath)) {
+    $forceCompile = env('APP_ENV') === 'local';
+    $filesToCheck = [$this->templatePath];
+
+    // Check for parent template if extending
+    $templateContent = file_get_contents($this->templatePath);
+    if (preg_match('/<%\s*extends\s*[\'\"](.+?)[\'\"]\s*%>/', $templateContent, $match)) {
+      $parentPath = base_path("resources/views/{$match[1]}.view.php");
+      $filesToCheck[] = $parentPath;
+    }
+
+    $latestMTime = $this->getLatestModificationTime($filesToCheck);
+
+    if (!$forceCompile && file_exists($this->compiledPath) && filemtime($this->compiledPath) >= $latestMTime) {
       return;
     }
+
 
     if (!file_exists($this->templatePath)) {
       throw new Exception("Template file not found: {$this->templatePath}");
@@ -55,6 +69,17 @@ class TemplateCompiler
 
     // Write the compiled template to cache
     file_put_contents($this->compiledPath, $content);
+  }
+
+  protected function getLatestModificationTime(array $files): int
+  {
+    $latest = 0;
+    foreach ($files as $file) {
+      if (file_exists($file)) {
+        $latest = max($latest, filemtime($file));
+      }
+    }
+    return $latest;
   }
 
   protected function removeComments(string $content): string
@@ -136,6 +161,8 @@ class TemplateCompiler
       '/<%\s*break\s*%>/' => '<?php break; ?>',
       '/<%\s*endswitch\s*%>/' => '<?php endswitch; ?>',
     ];
+
+
     foreach ($patterns as $pattern => $replacement) {
       $content = preg_replace($pattern, $replacement, $content);
     }
