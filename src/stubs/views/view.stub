@@ -1,0 +1,9 @@
+<% extends 'layout/app' %>
+
+<% block title %>
+  <#-- Title of the page --#>
+<% endblock %>
+
+<% block content %>
+  <#-- Content of the page --#>
+<% endblock %>
