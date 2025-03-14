@@ -47,6 +47,6 @@ class MaxRule implements Rule
 
   public function message(string $field): string
   {
-    return "The :attribute must not exceed {$this->max} kilobytes.";
+    return "The :attribute field must not exceed {$this->max}.";
   }
 }
