@@ -246,13 +246,23 @@ if (!function_exists('validateCsrfToken')) {
  * @return string The full path to the asset
  */
 if (!function_exists('asset')) {
-  function asset(string $path): string
+  function asset(?string $path = null): string
   {
     $scheme = $_SERVER['REQUEST_SCHEME'] ?? (
       (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http'
     );
 
     return $scheme . '://' . $_SERVER['HTTP_HOST'] . '/' . ltrim($path, '/');
+  }
+}
+
+if (!function_exists('store_path')) {
+  function store_path(?string $path = null): string
+  {
+    $scheme = $_SERVER['REQUEST_SCHEME'] ?? (
+      (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http'
+    );
+    return $scheme . '://' . $_SERVER['HTTP_HOST'] . '/store/' . ltrim($path, '/');
   }
 }
 
@@ -331,34 +341,54 @@ if (!function_exists('config_path')) {
   }
 }
 
+/**
+ * Get a configuration value using dot notation.
+ *
+ * This helper loads all configuration files (if not already loaded) and caches
+ * them in a static variable so that you can access any configuration using a key
+ * like "filesystem.disks.public.root" or "app.debug".
+ *
+ * @param string $key     The configuration key (using dot notation, e.g. "app.debug")
+ * @param mixed  $default Default value if the key is not found.
+ * @return mixed
+ */
 if (!function_exists('config')) {
-  /**
-   * Get a configuration value using dot notation.
-   *
-   * This helper loads all configuration files (if not already loaded) and caches
-   * them in a static variable so that you can access any configuration using a key
-   * like "filesystem.disks.public.root" or "app.debug".
-   *
-   * @param string $key     The configuration key (using dot notation, e.g. "app.debug")
-   * @param mixed  $default Default value if the key is not found.
-   * @return mixed
-   */
   function config(string $key, $default = null)
   {
     static $configs;
 
-    // Load all config files only once.
     if (!$configs) {
       $configs = [];
-      // Adjust BASE_PATH as needed. This assumes config files are in BASE_PATH/config/
-      foreach (glob(base_path('config/*.php')) as $file) {
-        // Use the filename (without extension) as the key
+
+      // Check if the config directory exists
+      $configPath = base_path('config/');
+      if (!is_dir($configPath)) {
+        throw new Exception("Config directory does not exist: $configPath");
+      }
+
+      // Debug: Check what files are being loaded
+      $files = glob($configPath . '*.php');
+      if (empty($files)) {
+        throw new Exception("No config files found in: $configPath");
+      }
+
+      foreach ($files as $file) {
         $name = basename($file, '.php');
         $configs[$name] = require $file;
       }
+
+      // Debug: Show loaded configs
+      if (empty($configs)) {
+        throw new Exception("Configurations failed to load.");
+      }
     }
 
-    // Use dot notation to get the desired config value.
+    // Debug: Show available configs
+    if ($key === 'filesystem') {
+      dd($configs);
+    }
+
+    // Traverse the config array
     $keys = explode('.', $key);
     $value = $configs;
     foreach ($keys as $segment) {
@@ -371,7 +401,6 @@ if (!function_exists('config')) {
     return $value;
   }
 }
-
 
 /**
  * Get the full path to a routes file

@@ -3,6 +3,7 @@
 namespace Pocketframe\TemplateEngine;
 
 use Exception;
+use Pocketframe\Http\Response\Response;
 
 class TemplateCompiler
 {
@@ -12,8 +13,7 @@ class TemplateCompiler
   public function __construct(string $templateName, bool $isFrameworkTemplate = false)
   {
     if ($isFrameworkTemplate) {
-      // Points to vendor Pocketframe error views (adjust as needed)
-      $this->templatePath = __DIR__ . '/../../resources/views/' . $templateName . '.view.php';
+      $this->templatePath = __DIR__ . '/../resources/views/errors/' . Response::NOT_FOUND . '.view.php';
     } else {
       // User's views
       $this->templatePath = base_path("resources/views/{$templateName}.view.php");

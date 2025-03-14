@@ -9,8 +9,11 @@ use League\Flysystem\Local\LocalFilesystemAdapter;
 
 class Storage
 {
+
   protected Filesystem $filesystem;
+
   protected array $config;
+
   protected string $disk;
 
   /**
@@ -21,8 +24,8 @@ class Storage
    */
   public function __construct(?string $disk = null)
   {
-    $this->disk = $disk ?? config('filesystem.default', 'local');
-    $disks = config('filesystem.disks', []);
+    $this->disk = $disk ?? config('filesystems.default', 'local');
+    $disks = config('filesystems.disks', []);
     if (!isset($disks[$this->disk])) {
       throw new \Exception("Disk [{$this->disk}] is not configured.");
     }
@@ -111,14 +114,30 @@ class Storage
    */
   public static function linkPublic(): void
   {
-    // Use the global config() helper to get filesystem settings
-    $disks = config('filesystem.disks', []);
+    // Get filesystem settings
+    $disks = config('filesystems.disks', []);
     if (!isset($disks['public'])) {
       throw new \Exception("Public disk not configured.");
     }
+
     $publicDiskConfig = $disks['public'];
     $target = $publicDiskConfig['root'];
-    $link = __DIR__ . '/../../public/store';
+    $link = base_path('public/store');
+
+    // Ensure the target directory exists
+    if (!is_dir($target)) {
+      echo "Target directory does not exist: $target\n";
+      mkdir($target, 0755, true);
+    }
+
+    // Ensure the parent directory of the symlink exists
+    $linkParentDir = dirname($link);
+    if (!is_dir($linkParentDir)) {
+      echo "Creating missing parent directory: $linkParentDir\n";
+      mkdir($linkParentDir, 0755, true);
+    }
+
+    // Create symlink if it doesn't exist
     if (!file_exists($link)) {
       if (symlink($target, $link)) {
         echo "Public storage linked successfully.\n";
