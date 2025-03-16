@@ -62,10 +62,10 @@ if (!function_exists('error')) {
  * @return void Dies after displaying error page
  */
 if (!function_exists('abort')) {
-  function abort(int $code = Response::NOT_FOUND)
+  function abort(int $code = Response::NOT_FOUND, string $message = 'Not Found'): void
   {
     http_response_code($code);
-    require "views/errors/{$code}.php";
+    require base_path('vendor/pocketframe/framework/src/resources/views/errors/' . $code . '.view.php');
     die();
   }
 }
@@ -535,11 +535,67 @@ if (!function_exists('flash')) {
 }
 
 if (!function_exists('session')) {
-  function session(string $key, $default = null)
+  function session()
   {
-    return Pocketframe\Sessions\Session::get($key, $default);
+    return new class {
+      public function has($key)
+      {
+        return \Pocketframe\Sessions\Session::hasFlash($key);
+      }
+
+      public function get($key, $default = null)
+      {
+        return \Pocketframe\Sessions\Session::getFlash($key, $default);
+      }
+    };
   }
 }
+
+/**
+ * Display flash messages for success and error.
+ *
+ * @param string $framework The CSS framework to use (e.g., 'tailwind', 'bootstrap').
+ * @return string The HTML for the flash messages.
+ */
+if (!function_exists('flash_message')) {
+  function flash_message(string $framework = 'tailwind'): string
+  {
+    if (session_status() === PHP_SESSION_NONE) {
+      session_start();
+    }
+
+    $output = '';
+    $success = session()->get('success');
+    $error   = session()->get('error');
+
+    $messages = [
+      'success' => $success,
+      'error'   => $error,
+    ];
+
+    foreach ($messages as $type => $message) {
+      if ($message) {
+        $classes = [
+          'tailwind' => [
+            'success' => 'bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4',
+            'error'   => 'bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4',
+          ],
+          'bootstrap' => [
+            'success' => 'alert alert-success',
+            'error'   => 'alert alert-danger',
+          ],
+        ];
+        $class = $classes[$framework][$type] ?? '';
+        $output .= "<div class=\"$class\">$message</div>";
+      }
+    }
+
+    \Pocketframe\Sessions\Session::expire();
+
+    return $output;
+  }
+}
+
 
 if (!function_exists('iterator')) {
   function iterator()

@@ -85,14 +85,40 @@ class UploadedFile
    */
   public function store(string $directory, string $disk = 'local'): string
   {
+    // Validate directory
+    if (empty($directory)) {
+      throw new \InvalidArgumentException('Storage directory cannot be empty.');
+    }
+
+    // Generate filename
     $filename = $this->hashName();
+    if (empty($filename)) {
+      throw new \RuntimeException('Failed to generate valid filename.');
+    }
+
     // Build the storage path.
     $path = rtrim($directory, '/') . '/' . $filename;
-    $storage = new Storage($disk);
-    $contents = file_get_contents($this->getRealPath());
-    if (!$storage->put($path, $contents)) {
-      throw new \Exception('Failed to store the uploaded file.');
+
+    // Validate uploaded file
+    $tempPath = $this->getRealPath();
+    if (empty($tempPath) || !is_uploaded_file($tempPath)) {
+      throw new \RuntimeException('Invalid file upload.');
     }
+
+    // Read file contents
+    $contents = file_get_contents($tempPath);
+    if ($contents === false) {
+      throw new \RuntimeException('Could not read file contents.');
+    }
+
+    $storage = new Storage($disk);
+
+    // Store file
+    $storage = new Storage($disk);
+    if (!$storage->put($path, $contents)) {
+      throw new \RuntimeException("Failed to store file at: $path");
+    }
+
     return $path;
   }
 }
