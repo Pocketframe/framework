@@ -58,21 +58,194 @@ class Handler implements ExceptionHandlerInterface
 
   protected function getErrorData(Throwable $e): array
   {
-    $data = ['message' => $e->getMessage()];
+    $file = $e->getFile();
+    $line = $e->getLine();
+    $sourceInfo = $this->resolveSourceMapping($file, $line);
 
-    if (env('APP_DEBUG')) {
+    $data = [
+      'message' => $e->getMessage(),
+      'file' => $sourceInfo['file'],
+      'line' => $sourceInfo['line'],
+      'source_metadata' => $sourceInfo['metadata']
+    ];
+
+    if (env('APP_DEBUG') === 'true') {
+      $data['snippet'] = $this->getCodeSnippet(
+        $sourceInfo['file'],
+        $sourceInfo['line'],
+        $sourceInfo['original_line'],
+        $sourceInfo['line_offset']
+      );
+
       $data += [
         'exception' => get_class($e),
-        'file' => $e->getFile(),
-        'line' => $e->getLine(),
-        'trace' => $e->getTraceAsString()
+        'trace' => $this->formatStackTrace($e->getTrace()),
+        'request' => $this->getRequestContext()
       ];
     }
 
-    if ($e instanceof ValidationException) {
-      $data['errors'] = $e->getErrors();
+    return $data;
+  }
+
+
+
+  private function resolveSourceMapping(string $file, int $line): array
+  {
+    $metadata = [];
+    $originalFile = $file;
+    $originalLine = $line;
+    $lineOffset = 0;
+
+    if (strpos($file, '/store/framework/views/') !== false) {
+      $sourceMapping = $this->parseCompiledViewMetadata($file);
+
+      if ($sourceMapping) {
+        $originalFile = $sourceMapping['source_file'];
+        $lineOffset = $sourceMapping['line_offset'];
+        $originalLine = max(1, $line - $lineOffset);
+        $metadata = ['compiled_path' => $file];
+      }
     }
 
-    return $data;
+    return [
+      'file' => $originalFile,
+      'line' => $originalLine,
+      'original_line' => $line,
+      'line_offset' => $lineOffset,
+      'metadata' => $metadata
+    ];
+  }
+
+  private function parseCompiledViewMetadata(string $compiledPath): ?array
+  {
+    $lines = @file($compiledPath);
+    if (!$lines) return null;
+
+    // Look for source mapping comment in first 5 lines
+    foreach (array_slice($lines, 0, 5) as $i => $line) {
+      if (preg_match('/\/\*\s?Source:\s?(.+?\.view\.php).*?\*\//', $line, $matches)) {
+        $sourceFile = $matches[1];
+        if (file_exists($sourceFile)) {
+          return [
+            'source_file' => $sourceFile,
+            'line_offset' => $i + 1  // Lines are 0-indexed in array
+          ];
+        }
+      }
+    }
+    return null;
+  }
+
+  private function getCodeSnippet(string $filePath, int $errorLine): array
+  {
+    $defaults = [
+      'file' => $filePath,
+      'line_start' => 0,
+      'line_end' => 0,
+      'error_line' => $errorLine,
+      'original_line' => $errorLine,
+      'content' => [],
+      'context' => ['is_compiled' => false]
+    ];
+
+    if (!file_exists($filePath)) {
+      return $defaults;
+    }
+
+    try {
+      $lines = @file($filePath) ?: [];
+      $lineCount = count($lines);
+
+      if ($lineCount === 0 || $errorLine < 1 || $errorLine > $lineCount) {
+        return $defaults;
+      }
+
+      // Convert to 0-based index
+      $errorIndex = $errorLine - 1;
+
+      // Adjust for chained method errors
+      $adjustedIndex = $this->findActualErrorLine($lines, $errorIndex);
+      $start = max(0, $adjustedIndex - 2);
+      $end = min($lineCount - 1, $adjustedIndex + 2);
+
+      return [
+        'file' => $filePath,
+        'line_start' => $start + 1,
+        'line_end' => $end + 1,
+        'error_line' => $adjustedIndex + 1,
+        'original_line' => $errorLine,
+        'content' => array_slice($lines, $start, $end - $start + 1),
+        'context' => [
+          'is_compiled' => str_contains($filePath, '/store/framework/views/')
+        ]
+      ];
+    } catch (\Throwable $e) {
+      return $defaults;
+    }
+  }
+
+  private function findActualErrorLine(array $lines, int $reportedIndex): int
+  {
+    $patterns = [
+      '/->\w+\(/',       // Method chaining
+      '/\b(fn|function)\b/', // Arrow functions
+      '/\[.*\]\s*=>/',   // Array mappings
+      '/\b(return|throw|new)\b/' // Control keywords
+    ];
+
+    for ($i = $reportedIndex; $i >= 0; $i--) {
+      $line = trim($lines[$i] ?? '');
+      if ($line === '') continue;
+
+      foreach ($patterns as $pattern) {
+        if (preg_match($pattern, $line)) {
+          return $i;
+        }
+      }
+    }
+
+    return $reportedIndex;
+  }
+
+
+  private function getFileContext(string $filePath): array
+  {
+    return [
+      'last_modified' => date('Y-m-d H:i:s', filemtime($filePath)),
+      'size' => filesize($filePath),
+      'is_compiled' => strpos($filePath, '/store/framework/views/') !== false
+    ];
+  }
+
+  private function formatStackTrace(array $trace): array
+  {
+    return array_map(function ($item) {
+      return [
+        'file' => $item['file'] ?? null,
+        'line' => $item['line'] ?? null,
+        'call' => $this->formatCall($item),
+        'source' => isset($item['file']) ? $this->getCodeSnippet($item['file'], $item['line']) : null
+      ];
+    }, $trace);
+  }
+
+  private function formatCall(array $item): string
+  {
+    $call = '';
+    if (isset($item['class'])) {
+      $call .= $item['class'] . $item['type'];
+    }
+    $call .= $item['function'] . '()';
+    return $call;
+  }
+
+  private function getRequestContext(): array
+  {
+    return [
+      'method' => $_SERVER['REQUEST_METHOD'] ?? null,
+      'uri' => $_SERVER['REQUEST_URI'] ?? null,
+      'referrer' => $_SERVER['HTTP_REFERER'] ?? null,
+      'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null
+    ];
   }
 }
