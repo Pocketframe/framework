@@ -88,7 +88,7 @@ class Pagination implements IteratorAggregate
    *
    * @return string
    */
-  public function renderPages(string $cssFramework = 'bootstrap'): string
+  public function renderPages(string $cssFramework = 'tailwind'): string
   {
     $html = '<div>';
 
