@@ -13,7 +13,7 @@ class TemplateCompiler
   public function __construct(string $templateName, bool $isFrameworkTemplate = false)
   {
     if ($isFrameworkTemplate) {
-      $this->templatePath = __DIR__ . '/../resources/views/errors/' . Response::NOT_FOUND . '.view.php';
+      $this->templatePath = __DIR__ . '../../resources/views/errors/' . Response::NOT_FOUND . '.view.php';
     } else {
       // User's views
       $this->templatePath = base_path("resources/views/{$templateName}.view.php");
@@ -54,6 +54,12 @@ class TemplateCompiler
     if (!is_dir($compiledDir)) {
       mkdir($compiledDir, 0777, true);
     }
+
+
+    // Embed original file reference at the top
+    $headerComment = "<?php /* Source: {$this->templatePath} */ ?>\n";
+    $content = $headerComment . $content;
+
 
     // Handle template inheritance
     $content = $this->processTemplateInheritance($content);
@@ -177,6 +183,62 @@ class TemplateCompiler
 
     // Optionally remove extra whitespace between HTML tags\n
     $content = preg_replace('/>\s+</', '><', $content);
+
+    $originalContent = $content;
+
+    $content = $this->processTagsWithLineNumbers(
+      $originalContent,
+      '/<%=\s*(.+?)\s*%>/',
+      function ($matches, $line) {
+        $expr = trim($matches[1]);
+
+        // Generate PHP code with line directive
+        $code = "<?php #line $line \"{$this->templatePath}\" ?>\n";
+
+        if (stripos($expr, 'route(') === 0) {
+          $code .= "<?php echo $expr; ?>";
+        } else {
+          $code .= "<?php echo htmlspecialchars(($expr) ?? '', ENT_QUOTES, 'UTF-8'); ?>";
+        }
+
+        return $code;
+      }
+    );
+
+
+    return $content;
+  }
+
+  private function processTagsWithLineNumbers(
+    string $originalContent,
+    string $pattern,
+    callable $processor
+  ): string {
+    $offset = 0;
+    $content = $originalContent;
+
+    while (preg_match($pattern, $content, $matches, PREG_OFFSET_CAPTURE, $offset)) {
+      $startPos = $matches[0][1];
+      $lineNumber = substr_count(substr($originalContent, 0, $startPos), "\n") + 1;
+
+      // Get replacement code with line directive
+      $replacement = $processor($matches, $lineNumber);
+
+      // Calculate replacement length
+      $matchLength = strlen($matches[0][0]);
+      $replacementLength = strlen($replacement);
+
+      // Replace in content
+      $content = substr_replace(
+        $content,
+        $replacement,
+        $startPos,
+        $matchLength
+      );
+
+      // Update offset for next search
+      $offset = $startPos + $replacementLength;
+    }
 
     return $content;
   }
