@@ -57,8 +57,36 @@ class Validator
     ];
 
     foreach ($rules as $field => $ruleSet) {
+      $skipValidation = false;
+      $filteredRules = [];
+
+      $value = $data[$field] ?? null;
+      $isNullable = in_array('nullable', $ruleSet);
+
+      // Skip validation if field is nullable and value is null/empty
+      if ($isNullable && ($value === null || $value === '')) {
+        continue; // Skip other validations
+      }
+
+      // Process sometimes rule first
+      foreach ($ruleSet as $rule) {
+        if ($rule === 'sometimes' || $rule instanceof SometimesRule) {
+          if (!array_key_exists($field, $data)) {
+            $skipValidation = true;
+            break;
+          }
+        } else {
+          $filteredRules[] = $rule;
+        }
+      }
+
+      if ($skipValidation) {
+        continue;
+      }
+
       // For each field, run validations in order and stop on the first failure.
       foreach ($ruleSet as $rule) {
+        if ($rule === 'nullable') continue;
         // If the rule is provided as a string, instantiate it (with parameters if provided).
         if (is_string($rule)) {
           // Check if the rule contains parameters (e.g., "min:3")

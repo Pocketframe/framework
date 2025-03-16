@@ -10,7 +10,8 @@ class SometimesRule implements Rule
 {
   public function isValid(mixed $value): bool
   {
-    // This rule always returns true. Its purpose is to signal that if the field is absent, other validations are skipped.
+    // This rule always returns true.
+    // Its purpose is to signal that if the field is absent, other validations are skipped.
     return true;
   }
 
