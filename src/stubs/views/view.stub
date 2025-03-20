@@ -1,9 +1,9 @@
-<% extends 'layout/app' %>
+@layout('layouts/app')
 
-<% block title %>
-  <#-- Title of the page --#>
-<% endblock %>
+@block('title')
+{# Title of the page #}
+@endblock
 
-<% block content %>
-  <#-- Content of the page --#>
-<% endblock %>
+@block('content')
+  {# Content of the page #}
+@endblock

@@ -18,7 +18,7 @@ class Kernel
   {
     // Command registry: map command names to their class and description.
     $this->commands = [
-      'serve'              => [
+      'serve'  => [
         'class' => \Pocketframe\Console\Commands\ServeCommand::class,
         'desc'  => 'Start the built-in PHP server (automatically assigns a free port).'
       ],
@@ -30,23 +30,31 @@ class Kernel
         'class' => \Pocketframe\Console\Commands\CreateMiddlewareCommand::class,
         'desc'  => 'Generate a new middleware class.'
       ],
-      'clear:views'        => [
+      'clear:views'  => [
         'class' => \Pocketframe\Console\Commands\ClearViewsCommand::class,
         'desc'  => 'Clear compiled/cached views located in store/framework/views.'
       ],
-      'add:key'            => [
+      'add:key' => [
         'class' => \Pocketframe\Console\Commands\AddKeyCommand::class,
         'desc'  => 'Generate a new application key.'
       ],
-      'view:create'        => [
+      'view:create' => [
         'class' => \Pocketframe\Console\Commands\CreateViewCommand::class,
         'desc'  => 'Generate a new view file.'
       ],
-      'store:link'        => [
+      'component:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateComponentCommand::class,
+        'desc'  => 'Generate a new component class with its view stub (optionally with inline view).'
+      ],
+      'partial:create' => [
+        'class' => \Pocketframe\Console\Commands\CreatePartialCommand::class,
+        'desc'  => 'Generate a new partial view file.'
+      ],
+      'store:link' => [
         'class' => \Pocketframe\Console\Commands\CreateStoreLinkCommand::class,
         'desc'  => 'Create a symbolic link to the store directory.'
       ],
-      'help'               => [
+      'help' => [
         'class' => \Pocketframe\Console\Commands\HelpCommand::class,
         'desc'  => 'Display a list of all available commands.'
       ],
