@@ -1,0 +1,4 @@
+<!-- Inline component view stub for {{componentName}} -->
+<span class="">
+    {{slot}}
+</span>

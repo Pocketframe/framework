@@ -18,11 +18,15 @@ class View
   public static function render(string $template, array $data = []): string
   {
     $compiler = new TemplateCompiler($template);
+    $compiler->with($data);
     $compiler->compile();
     $compiledFile = $compiler->getCompiledPath();
 
     // Extract variables from the $data array into the current symbol table.
     extract($data);
+
+    $__template = $compiler;
+
     ob_start();
     include $compiledFile;
     return ob_get_clean();

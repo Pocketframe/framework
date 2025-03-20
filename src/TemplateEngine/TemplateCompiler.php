@@ -3,35 +3,102 @@
 namespace Pocketframe\TemplateEngine;
 
 use Exception;
+use Pocketframe\Cache\Cache;
 use Pocketframe\Http\Response\Response;
 
+/**
+ * Class TemplateCompiler
+ *
+ * Compiles custom template syntax into executable PHP code.
+ * Handles template inheritance, caching, components, and more.
+ *
+ * When including the compiled file, assign the TemplateCompiler instance
+ * to the variable $__template. For example:
+ *
+ *   $__template = $compiler;
+ *   include $compiler->getCompiledPath();
+ */
 class TemplateCompiler
 {
+  /** @var string Path to the source template file. */
   protected string $templatePath;
+
+  /** @var string Path to the compiled template file. */
   protected string $compiledPath;
 
+  /** @var array Stores block content for template inheritance. */
+  protected array $blocks = [];
+
+  /** @var array Stores reusable component content. */
+  protected array $components = [];
+
+  /** @var array Tracks cache blocks and their parameters. */
+  protected array $cacheStack = [];
+
+  /** @var array Tracks error blocks and their fields. */
+  protected array $errorStack = [];
+
+  /** @var array Tracks nested block and component stacks. */
+  protected array $stacks = [];
+
+  /** @var array Data passed to the template for rendering. */
+  protected array $data = [];
+
+  /** @var array Tracks sublayout hierarchy for template inheritance. */
+  protected array $sublayoutStack = [];
+
+  /** @var array Stores validation errors. */
+  protected array $errors = [];
+
+  /**
+   * Used for unique naming in each/endeach directives.
+   * @var int
+   */
+  protected int $eachCount = 0;
+
+  /**
+   * Stack for storing unique empty output variable names for each loops.
+   * @var array
+   */
+  protected array $eachVarStack = [];
+
+  /**
+   * TemplateCompiler constructor.
+   *
+   * @param string $templateName The name of the template to compile.
+   * @param bool $isFrameworkTemplate Whether the template is a framework template.
+   */
   public function __construct(string $templateName, bool $isFrameworkTemplate = false)
   {
     if ($isFrameworkTemplate) {
-      $this->templatePath = __DIR__ . '../../resources/views/errors/' . Response::NOT_FOUND . '.view.php';
+      $this->templatePath = __DIR__ . '/../../resources/views/errors/' . Response::NOT_FOUND . '.view.php';
     } else {
-      // User's views
       $this->templatePath = base_path("resources/views/{$templateName}.view.php");
     }
-    // Generate a stable cache filename so the same template doesn't recompile every time.
     $this->compiledPath = base_path("store/framework/views/" . $this->cacheViewName($templateName));
   }
 
+  public function __get($name)
+  {
+    if (property_exists($this, $name)) {
+      return $this->$name;
+    }
+    return null;
+  }
+
+
+  /**
+   * Compiles the template into executable PHP code.
+   *
+   * @throws Exception If the template file is not found.
+   */
   public function compile(): void
   {
-    // check if the environment is local
-    // Recompile only if the source template is newer than the compiled file.
     $forceCompile = env('APP_ENV') === 'local';
     $filesToCheck = [$this->templatePath];
 
-    // Check for parent template if extending
     $templateContent = file_get_contents($this->templatePath);
-    if (preg_match('/<%\s*extends\s*[\'\"](.+?)[\'\"]\s*%>/', $templateContent, $match)) {
+    if (preg_match('/@layout\(\s*[\'"](.+?)[\'"]\s*\)/', $templateContent, $match)) {
       $parentPath = base_path("resources/views/{$match[1]}.view.php");
       $filesToCheck[] = $parentPath;
     }
@@ -42,42 +109,713 @@ class TemplateCompiler
       return;
     }
 
-
     if (!file_exists($this->templatePath)) {
       throw new Exception("Template file not found: {$this->templatePath}");
     }
 
     $content = file_get_contents($this->templatePath);
+    $content = $this->processTemplateInheritance($content);
+    $content = $this->compileComments($content);
+    $content = $this->compileEchos($content);
+    $content = $this->compileStatements($content);
 
-    // Ensure the cache directory exists
+    // Process @component blocks (with slots)
+    $content = preg_replace_callback('/@component\((.*?)\)(.*?)@endcomponent/s', function ($matches) {
+      return $this->compileComponentBlock($matches[1], $matches[2]);
+    }, $content);
+
+    // Process @include directives for partials.
+    $content = preg_replace_callback('/@include\((.*?)\)/s', function ($matches) {
+      return $this->compileInclude($matches[1]);
+    }, $content);
+
+    // Process other directives
+    $content = $this->compileStatements($content);
+
+    // Process XML-like <x-...> component tags.
+    $content = preg_replace_callback('/<x-([\w-]+)([^>]*)>(.*?)<\/x-\1>/s', function ($matches) {
+      return $this->compileXComponent($matches);
+    }, $content);
+
+
+    $content = $this->minify($content);
+
+    // Prepend source mapping metadata:
+    $sourceMapping = "<?php /* Source: {$this->templatePath}, line_offset: 0 */ ?>\n";
+    $content = $sourceMapping . $content;
+
     $compiledDir = dirname($this->compiledPath);
     if (!is_dir($compiledDir)) {
       mkdir($compiledDir, 0777, true);
     }
 
-
-    // Embed original file reference at the top
-    $headerComment = "<?php /* Source: {$this->templatePath} */ ?>\n";
-    $content = $headerComment . $content;
-
-
-    // Handle template inheritance
-    $content = $this->processTemplateInheritance($content);
-
-    // Remove comments (both block and single-line)
-    $content = $this->removeComments($content);
-
-    // Convert template syntax to PHP
-    $content = $this->convertSyntax($content);
-
-    // Remove any unreplaced yield placeholders (if any remain, replace with empty string)
-    $content = preg_replace('/<%\s*yield\s+\w+\s*%>/', '', $content);
-
-    // Write the compiled template to cache
     file_put_contents($this->compiledPath, $content);
   }
 
-  protected function getLatestModificationTime(array $files): int
+  /**
+   * Compiles template control structures (e.g., @if, @foreach, @each, etc.).
+   *
+   * Uses a regex pattern that handles a single level of nested parentheses.
+   *
+   * @param string $content The template content to compile.
+   * @return string The compiled PHP code.
+   */
+  protected function compileStatements(string $content): string
+  {
+    return preg_replace_callback(
+      '/\B@(\w+)(?:\s*\(([^()]*(?:\([^)]*\)[^()]*)*)\))?/s',
+      function ($match) {
+        $directive = $match[1];
+        $args = isset($match[2]) ? $this->parseArguments($match[2]) : '';
+        return $this->compileControlStructures($directive, $args);
+      },
+      $content
+    );
+  }
+
+  /**
+   * Compiles individual control structures into PHP code.
+   *
+   * Instance method calls are replaced with calls on the variable $__template.
+   *
+   * @param string $directive The directive name.
+   * @param string $args The parsed arguments.
+   * @return string The compiled PHP code.
+   */
+  protected function compileControlStructures(string $directive, string $args): string
+  {
+    return match ($directive) {
+      'layout'       => "<?php \$__template->layout($args); ?>",
+      'sublayout'    => "<?php \$__template->sublayout($args); ?>",
+      'block'        => "<?php \$__template->startBlock($args); ?>",
+      'endblock'     => "<?php \$__template->endBlock(); ?>",
+      'insert'       => "<?php echo \$__template->insert($args); ?>",
+      'if'           => "<?php if ($args): ?>",
+      'elseif'       => "<?php elseif ($args): ?>",
+      'else'         => "<?php else: ?>",
+      'endif'        => "<?php endif; ?>",
+      'foreach'      => $this->compileForEach($args),
+      'endforeach'   => "<?php endforeach; ?>",
+      'each'         => $this->compileEach($args),
+      'endeach'      => $this->compileEndEach(),
+      'embed'        => "<?php \$__template->embed($args); ?>",
+      'component'    => "<?php \$__template->startComponent($args); ?>",
+      'endcomponent' => "<?php \$__template->endComponent(); ?>",
+      'method'       => '<?php echo \Pocketframe\TemplateEngine\TemplateCompiler::methodHelper(' . $args . '); ?>',
+      'csrf'         => '<?php echo \Pocketframe\TemplateEngine\TemplateCompiler::csrfHelper(); ?>',
+      'error'        => "<?php \$__template->startError($args); ?>",
+      'enderror'     => "<?php \$__template->endError(); ?>",
+      'debug'        => "<?php if(env('APP_DEBUG')): ?>",
+      'enddebug'     => "<?php endif; ?>",
+      'cache'        => "<?php if(!\$__template->startCache($args)): ?>",
+      'endcache'     => "<?php endif; \$__template->endCache(); ?>",
+      'lazy'         => "<?php echo \$__template->lazyLoad($args); ?>",
+      'php'          => '<?php ',
+      'endphp'       => ' ?>',
+      'dd'           => "<?php dd($args); ?>",
+      default        => "@$directive" . ($args !== '' ? "($args)" : '')
+    };
+  }
+
+
+  /**
+   * Converts a collection to an array.
+   *
+   * If the given $collection is already an array, it is returned unchanged.
+   * If it's an instance of Traversable, it will be converted via iterator_to_array.
+   * Otherwise, returns an empty array.
+   *
+   * @param mixed $collection
+   * @return array
+   */
+  public static function toArray($collection): array
+  {
+    if (is_array($collection)) {
+      return $collection;
+    }
+    if ($collection instanceof \Traversable) {
+      return iterator_to_array($collection);
+    }
+    return [];
+  }
+
+  /**
+   * Compiles the "each" directive into a PHP foreach block with loop variables.
+   *
+   * @param string $expression The raw expression inside @each(...).
+   * @return string The compiled PHP code.
+   */
+  protected function compileForEach(string $expression): string
+  {
+    // Expect expression like "$posts as $post"
+    if (preg_match('/^\s*(.+?)\s+as\s+(\$[\w]+)/', $expression, $matches)) {
+      $collection = trim($matches[1]); // e.g. $posts
+      $itemVar = trim($matches[2]);     // e.g. $post
+      // Build PHP code that:
+      // 1. Stores the collection in a temporary variable.
+      // 2. Calculates its count.
+      // 3. Iterates over the collection.
+      // 4. Creates a $loop object with useful properties.
+      $compiled = "<?php \$__temp_collection = {$collection}; ";
+      $compiled .= "\$__loop_count = is_array(\$__temp_collection) ? count(\$__temp_collection) : 0; ";
+      $compiled .= "foreach(\$__temp_collection as \$key => {$itemVar}): ";
+      $compiled .= "\$loop = new stdClass(); ";
+      $compiled .= "\$loop->index = \$key; ";
+      $compiled .= "\$loop->iteration = \$key + 1; ";
+      $compiled .= "\$loop->count = \$__loop_count; ";
+      $compiled .= "\$loop->first = \$key === 0; ";
+      $compiled .= "\$loop->last = (\$key + 1) === \$__loop_count; ?>";
+      return $compiled;
+    }
+    // Fallback in case the expression does not match expected pattern.
+    return "<?php foreach({$expression}): ?>";
+  }
+
+
+
+  /**
+   * Compiles the "each" directive into a PHP foreach block with output buffering.
+   *
+   * Expected arguments: "collection, as, empty"
+   *
+   * @param string $args The raw arguments.
+   * @return string The compiled PHP code for the each block.
+   */
+  /**
+   * Compiles the "each" directive into a PHP foreach block with output buffering.
+   *
+   * Supports two syntaxes:
+   *   1) @each($collection, $as, $empty) – comma separated.
+   *   2) @each($collection as $as) – "as" syntax; $empty defaults to an empty string.
+   *
+   * @param string $args The raw arguments.
+   * @return string The compiled PHP code for the each block.
+   */
+  protected function compileEach(string $args): string
+  {
+    // Determine the syntax used.
+    if (stripos($args, ' as ') !== false) {
+      // "as" syntax.
+      list($collection, $as) = explode(' as ', $args, 2);
+      $collection = trim($collection);
+      $as = trim($as);
+      $empty = '';
+    } else {
+      // Comma-separated syntax.
+      $parts = array_map('trim', explode(',', $args));
+      $collection = $parts[0] ?? '';
+      $as = $parts[1] ?? 'item';
+      $empty = $parts[2] ?? '';
+    }
+    // Remove leading '$' if present from both collection and alias.
+    if (substr($collection, 0, 1) === '$') {
+      $collection = substr($collection, 1);
+    }
+    if (substr($as, 0, 1) === '$') {
+      $as = substr($as, 1);
+    }
+    $this->eachCount++;
+    $varName = '__eachEmpty_' . $this->eachCount;
+    $this->eachVarStack[] = $varName;
+
+    return "<?php \${$varName} = " . var_export($empty, true) . "; "
+      . "\$__collection = \\Pocketframe\\TemplateEngine\\TemplateCompiler::toArray(\$__template->data[" . var_export($collection, true) . "]); "
+      . "\$__loop_count = count(\$__collection); "
+      . "if(\$__loop_count > 0): foreach(\$__collection as \$key => \$$as): ob_start(); "
+      . "\$loop = new stdClass(); "
+      . "\$loop->index = \$key; "
+      . "\$loop->iteration = \$key + 1; "
+      . "\$loop->count = \$__loop_count; "
+      . "\$loop->first = (\$key === 0); "
+      . "\$loop->last = ((\$key + 1) === \$__loop_count); ?>";
+  }
+
+
+
+  /**
+   * Compiles the "endeach" directive to close the foreach block started by "each".
+   *
+   * @return string The compiled PHP code for ending the each block.
+   */
+  protected function compileEndEach(): string
+  {
+    $varName = array_pop($this->eachVarStack);
+    return "<?php echo ob_get_clean(); endforeach; else: echo \${$varName}; endif; ?>";
+  }
+
+  /**
+   * Compiles echo statements (e.g., {{ }}, {{! }}, {{js }}).
+   *
+   * @param string $content The template content to compile.
+   * @return string The compiled PHP code.
+   */
+  protected function compileEchos(string $content): string
+  {
+    $content = preg_replace_callback('/{{!\s*(.+?)\s*}}/s', function ($matches) {
+      return "<?php echo {$matches[1]}; ?>";
+    }, $content);
+
+    $content = preg_replace_callback('/{{\s*(.+?)\s*}}/s', function ($matches) {
+      return "<?php echo htmlspecialchars({$matches[1]} ?? '', ENT_QUOTES, 'UTF-8'); ?>";
+    }, $content);
+
+    $content = preg_replace_callback('/{{js\s*(.+?)}}/s', function ($matches) {
+      return "<?php echo json_encode({$matches[1]}, JSON_HEX_TAG); ?>";
+    }, $content);
+
+    $content = preg_replace_callback(
+      '/<script>\s*@{\s*(.*?)\s*}\s*<\/script>/s',
+      function ($matches) {
+        return $this->compileHydration($matches[1]);
+      },
+      $content
+    );
+
+    return $content;
+  }
+
+  /**
+   * Compiles JavaScript hydration blocks.
+   *
+   * @param string $options The hydration options.
+   * @return string The compiled PHP code.
+   */
+  protected function compileHydration(string $options): string
+  {
+    $params = [];
+    parse_str(str_replace(', ', '&', $options), $params);
+    $json = $params['json'] ?? '';
+    $hydrate = $params['hydrate'] ?? 'data';
+    return "<?php echo \$__template->hydrate('$hydrate', $json); ?>";
+  }
+
+  /**
+   * Compiles template comments (e.g., {#  #}).
+   *
+   * @param string $content The template content to compile.
+   * @return string The compiled PHP code.
+   */
+  protected function compileComments(string $content): string
+  {
+    return preg_replace('/{# (.+?) #}/s', '<?php /* $1 */ ?>', $content);
+  }
+
+  /**
+   * Processes template inheritance (e.g., @layout, @block, @insert).
+   *
+   * @param string $content The template content to process.
+   * @return string The processed content.
+   * @throws Exception If the parent template is not found.
+   */
+  protected function processTemplateInheritance(string $content): string
+  {
+    if (preg_match('/@layout\(\s*[\'"](.+?)[\'"]\s*\)/', $content, $match)) {
+      $parentTemplate = $match[1];
+      $content = str_replace($match[0], '', $content);
+
+      preg_match_all('/@block\(\s*[\'"](.+?)[\'"]\s*\)(.*?)@endblock/s', $content, $childBlockMatches);
+      $childBlocks = array_combine($childBlockMatches[1], $childBlockMatches[2]);
+
+      $parentPath = base_path("resources/views/{$parentTemplate}.view.php");
+      if (!file_exists($parentPath)) {
+        throw new Exception("Parent template not found: {$parentPath}");
+      }
+      $parentContent = file_get_contents($parentPath);
+
+      foreach ($childBlocks as $name => $block) {
+        $parentContent = preg_replace(
+          '/@insert\(\s*[\'"]' . preg_quote($name, '/') . '[\'"]\s*\)/',
+          $block,
+          $parentContent
+        );
+      }
+
+      return $parentContent;
+    }
+
+    return $content;
+  }
+
+  /**
+   * Minifies the compiled template output.
+   *
+   * This method removes extra whitespace between HTML tags while leaving PHP code intact.
+   *
+   * @param string $content The compiled template content.
+   * @return string The minified template content.
+   */
+  protected function minify(string $content): string
+  {
+    // Split the content on PHP tags.
+    $parts = preg_split('/(<\?php.*?\?>)/s', $content, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+    foreach ($parts as $i => $part) {
+      // Only minify non-PHP parts.
+      if (strpos($part, '<?php') === false) {
+        // Remove extra whitespace between HTML tags.
+        $parts[$i] = preg_replace('/>\s+</', '><', $part);
+        // Optionally, trim leading/trailing whitespace.
+        $parts[$i] = trim($parts[$i]);
+      }
+    }
+
+    return implode('', $parts);
+  }
+
+  /**
+   * Compiles the "component" block (with slot) in PHP code
+   *
+   * Expect a syntax like
+   * @component('button', ['class' => 'bg-green-500'])
+   *  Button text here
+   * @endcomponent
+   *
+   * The content between @component and @endcomponent is passed as a slot to the component.
+   *
+   * @param string $expression The raw expression inside @component(...)
+   * @param string $content The content of the component (slot)
+   * @return string The compiled component code.
+   */
+  protected function compileComponentBlock(string $expression, string $content): string
+  {
+    $expression = trim($expression, '()');
+    $parts = explode(',', $expression, 2);
+    $component = trim($parts[0], " '\"");
+    $props = isset($parts[1]) ? trim($parts[1]) : '[]';
+    $unique = '__slot_' . uniqid();
+    $compiled = "<?php \$__props = $props; extract(\$__props); \$slot = <<<{$unique}\n" . $content . "\n{$unique};\n";
+    $compiled .= "include base_path('resources/views/components/" . strtolower($component) . ".view.php'); ?>";
+    return $compiled;
+  }
+
+
+
+  /**
+   * Compiles the "include" directive into PHP code.
+   *
+   * Expects a syntax like:
+   *   @include('header', ['title' => 'Home'])
+   *
+   * @param string $expression The raw expression inside @include(...).
+   * @return string The compiled PHP code.
+   */
+  protected function compileInclude(string $expression): string
+  {
+    $expression = trim($expression, '()');
+    $parts = explode(',', $expression, 2);
+    $partial = trim($parts[0], " '\"");
+    $props = isset($parts[1]) ? trim($parts[1]) : '[]';
+    $path = base_path("resources/views/{$partial}.view.php");
+    if (!file_exists($path)) {
+      throw new Exception("View file not found: {$path}");
+    }
+    return "<?php \$__props = $props; extract(\$__props); include '{$path}'; ?>";
+  }
+
+  /**
+   * Retrieves the content of a block by name.
+   *
+   * @param string $name The name of the block.
+   * @return string The content of the block, or an empty string if not found.
+   */
+  public function getBlock(string $name): string
+  {
+    return $this->blocks[$name] ?? '';
+  }
+
+
+  /**
+   * Compiles an XML-like component tag (the <x-...> syntax) into PHP code.
+   *
+   * Expects a syntax like:
+   *   <x-button class="bg-green-500">Submit</x-button>
+   *
+   * Attributes are parsed and passed as props, and the inner content is used as the slot.
+   *
+   * @param array $matches The regex matches:
+   *        [1] component name, [2] attribute string, [3] inner content.
+   * @return string The compiled PHP code.
+   */
+  protected function compileXComponent(array $matches): string
+  {
+    $component = ucfirst(str_replace('-', '', $matches[1]));
+    $attributes = $matches[2];
+    $slotContent = $matches[3];
+
+    $propsArr = [];
+    if (preg_match_all('/(\w+)\s*=\s*"([^"]*)"/', $attributes, $attrMatches, PREG_SET_ORDER)) {
+      foreach ($attrMatches as $attr) {
+        $propsArr[$attr[1]] = $attr[2];
+      }
+    }
+    $propsCode = var_export($propsArr, true);
+    $unique = '__slot_' . uniqid();
+    $compiled = "<?php \$__props = $propsCode; extract(\$__props); \$slot = <<<{$unique}\n" . $slotContent . "\n{$unique};\n";
+
+    $componentClass = "App\\View\\Components\\{$component}";
+    $viewBase = strtolower($component);
+
+    if (class_exists($componentClass)) {
+      $compiled .= "\$__component = new $componentClass(\$__props); ";
+      $compiled .= "\$__view = \$__component->render(); ";
+      $compiled .= "extract(\$__component->props); ";
+      $compiled .= "include base_path(\$__view);";
+    } else {
+      // Check for inline view first, then fallback to regular view
+      $compiled .= "if (file_exists(base_path('resources/views/components/{$viewBase}.inline.view.php'))) {";
+      $compiled .= "include base_path('resources/views/components/{$viewBase}.inline.view.php');";
+      $compiled .= "} else {";
+      $compiled .= "include base_path('resources/views/components/{$viewBase}.view.php');";
+      $compiled .= "}";
+    }
+
+    $compiled .= " ?>";
+    return $compiled;
+  }
+
+  /**
+   * Adds data to the template for rendering.
+   *
+   * @param array $data The data to add.
+   * @return self
+   */
+  public function with(array $data): self
+  {
+    $this->data = array_merge($this->data, $data);
+    return $this;
+  }
+
+  /**
+   * Starts a block section.
+   *
+   * @param string $name The name of the block.
+   */
+  protected function startBlock(string $name): void
+  {
+    ob_start();
+    $this->blocks[$name] = null;
+    array_push($this->stacks, $name);
+  }
+
+  /**
+   * Ends a block section.
+   */
+  protected function endBlock(): void
+  {
+    $name = array_pop($this->stacks);
+    $this->blocks[$name] = ob_get_clean();
+  }
+
+  /**
+   * Inserts the content of a block.
+   *
+   * @param string $name The name of the block.
+   * @return string The block content.
+   */
+  protected function insert(string $name): string
+  {
+    return $this->blocks[$name] ?? '';
+  }
+
+  /**
+   * Starts a reusable component.
+   *
+   * @param string $name The name of the component.
+   */
+  protected function startComponent(string $name): void
+  {
+    ob_start();
+    array_push($this->stacks, $name);
+  }
+
+
+  /**
+   * Ends a reusable component.
+   *
+   * @return void
+   */
+  protected function endComponent(): void
+  {
+    $name = array_pop($this->stacks);
+    $this->components[$name] = ob_get_clean();
+  }
+
+  /**
+   * Sets the validation errors.
+   *
+   * @param array $errors The validation errors.
+   * @return self
+   */
+  public function setErrors(array $errors): self
+  {
+    $this->errors = $errors;
+    return $this;
+  }
+
+  /**
+   * Starts an error block.
+   *
+   * @param string $field The field associated with the error.
+   */
+  protected function startError(string $field): void
+  {
+    ob_start();
+    $this->errorStack[] = $field;
+  }
+
+  /**
+   * Ends an error block.
+   */
+  protected function endError(): void
+  {
+    $field = array_pop($this->errorStack);
+    $error = ob_get_clean();
+    echo isset($this->errors[$field]) ? "<div class=\"error\">$error</div>" : '';
+  }
+
+  /**
+   * Starts a cache block.
+   *
+   * @param string $key The cache key.
+   * @param int $minutes The cache duration in minutes.
+   * @return bool Whether the cache was hit.
+   */
+  protected function startCache(string $key, int $minutes = 60): bool
+  {
+    if ($content = Cache::get($key)) {
+      echo $content;
+      return true;
+    }
+    ob_start();
+    $this->cacheStack[] = compact('key', 'minutes');
+    return false;
+  }
+
+  /**
+   * Ends a cache block.
+   */
+  protected function endCache(): void
+  {
+    $params = array_pop($this->cacheStack);
+    $content = ob_get_clean();
+    Cache::put($params['key'], $content, $params['minutes']);
+    echo $content;
+  }
+
+  /**
+   * Hydrates JavaScript data.
+   *
+   * @param string $var The JavaScript variable name.
+   * @param mixed $data The data to hydrate.
+   * @return string The hydration script.
+   */
+  protected function hydrate(string $var, $data): string
+  {
+    $json = json_encode($data, JSON_HEX_TAG);
+    return "<script>window.{$var} = {$json};</script>";
+  }
+
+  /**
+   * Generates a lazy loading container.
+   *
+   * @param string $url The URL to lazy load.
+   * @return string The lazy loading HTML.
+   */
+  protected function lazyLoad(string $url): string
+  {
+    return "<div data-lazy-container data-src=\"{$url}\"></div>";
+  }
+
+  /**
+   * Generates a CSRF token input.
+   *
+   * Exposed as a static helper for use in compiled templates.
+   *
+   * @return string The CSRF token HTML.
+   */
+  public static function csrfHelper(): string
+  {
+    return csrf_token();
+  }
+
+  /**
+   * Generates a hidden method input field for form spoofing.
+   *
+   * Exposed as a static helper for use in compiled templates.
+   *
+   * @param string $method The HTTP method (e.g. "DELETE", "PUT").
+   * @return string The hidden method input HTML.
+   */
+  public static function methodHelper(string $method): string
+  {
+    return method($method);
+  }
+
+  /**
+   * Sets the layout for the template.
+   *
+   * @param string $template The layout template name.
+   */
+  protected function layout(string $template): void
+  {
+    $this->sublayoutStack[] = $this->templatePath;
+    $this->templatePath = base_path("resources/views/{$template}.view.php");
+    ob_start();
+  }
+
+  /**
+   * Sets a sublayout for the template.
+   *
+   * @param string $template The sublayout template name.
+   */
+  protected function sublayout(string $template): void
+  {
+    $this->layout($template);
+  }
+
+  /**
+   * Embeds a sub-template.
+   *
+   * @param string $template The sub-template name.
+   * @param array $data Additional data for the sub-template.
+   */
+  protected function embed(string $template, array $data = []): void
+  {
+    extract(array_merge($this->data, $data));
+    include base_path("resources/views/{$template}.view.php");
+  }
+
+  /**
+   * Parses directive arguments.
+   *
+   * Only trims whitespace so that parentheses remain intact.
+   *
+   * @param string $args The raw arguments.
+   * @return string The cleaned arguments.
+   */
+  private function parseArguments(string $args): string
+  {
+    return trim($args);
+  }
+
+  /**
+   * Generates a cache-friendly view name.
+   *
+   * @param string $viewPath The view path.
+   * @return string The hashed view name.
+   */
+  private function cacheViewName(string $viewPath): string
+  {
+    return md5($viewPath) . '.php';
+  }
+
+  /**
+   * Gets the latest modification time of files.
+   *
+   * @param array $files The files to check.
+   * @return int The latest modification time.
+   */
+  private function getLatestModificationTime(array $files): int
   {
     $latest = 0;
     foreach ($files as $file) {
@@ -88,170 +826,13 @@ class TemplateCompiler
     return $latest;
   }
 
-  protected function removeComments(string $content): string
-  {
-    // Remove block comments <#-- ... --#> (multiline)
-    $content = preg_replace('/<#--[\s\S]*?--#>/', '', $content);
-    // Remove single-line comments <%-- ... --%>
-    $content = preg_replace('/<%--(.*?)--%>/m', '', $content);
-    return $content;
-  }
-
-  protected function processTemplateInheritance(string $content): string
-  {
-    if (preg_match('/<%\s*extends\s*[\'\"](.+?)[\'\"]\s*%>/', $content, $match)) {
-      $parentTemplate = $match[1];
-      $content = str_replace($match[0], '', $content); // Remove extends tag
-
-      // Extract child blocks
-      preg_match_all('/<%\s*block\s+(\w+)\s*%>(.*?)<%\s*endblock\s*%>/s', $content, $childBlockMatches);
-      $childBlocks = array_combine($childBlockMatches[1], $childBlockMatches[2]);
-
-      // Load parent template
-      $parentPath = base_path("resources/views/{$parentTemplate}.view.php");
-      if (!file_exists($parentPath)) {
-        throw new Exception("Parent template file not found: {$parentPath}");
-      }
-      $parentContent = file_get_contents($parentPath);
-
-      // Replace yield placeholders with child block content
-      foreach ($childBlocks as $blockName => $blockContent) {
-        $parentContent = preg_replace('/<%\s*yield\s*' . preg_quote($blockName, '/') . '\s*%>/', $blockContent, $parentContent);
-      }
-
-      return $parentContent;
-    }
-
-    return $content;
-  }
-
-  protected function convertSyntax(string $content): string
-  {
-    // Convert plain PHP blocks: <% php %> ... <% endphp %>
-    $content = preg_replace_callback('/<%\s*php\s*%>(.*?)<%\s*endphp\s*%>/s', function ($matches) {
-      return '<?php ' . $matches[1] . ' ?>';
-    }, $content);
-
-    // Convert echo shorthand using a callback
-    $content = preg_replace_callback('/<%=\s*(.+?)\s*%>/', function ($matches) {
-      $expr = trim($matches[1]);
-      // If the expression starts with "yield", output nothing
-      if (stripos($expr, 'yield') === 0) {
-        return '';
-      }
-      // If the expression starts with "route(", output it raw (unescaped)
-      if (stripos($expr, 'route(') === 0) {
-        return '<?php echo ' . $expr . '; ?>';
-      }
-      // Otherwise, safely echo the expression, defaulting to empty string if null\n
-      return '<?php echo htmlspecialchars((' . $expr . ') ?? \'\', ENT_QUOTES, "UTF-8"); ?>';
-    }, $content);
-
-    // Convert raw echo without escaping
-    $content = preg_replace('/<%!\s*(.+?)\s*%>/', '<?php echo $1; ?>', $content);
-
-    // Convert control structures
-    $patterns = [
-      '/<%\s*if\s*\((.+?)\)\s*%>/' => '<?php if ($1): ?>',
-      '/<%\s*elseif\s*\((.+?)\)\s*%>/' => '<?php elseif ($1): ?>',
-      '/<%\s*else\s*%>/' => '<?php else: ?>',
-      '/<%\s*endif\s*%>/' => '<?php endif; ?>',
-      '/<%\s*foreach\s*\((.+?)\)\s*%>/' => '<?php foreach ($1): ?>',
-      '/<%\s*endforeach\s*%>/' => '<?php endforeach; ?>',
-      '/<%\s*for\s*\((.+?)\)\s*%>/' => '<?php for ($1): ?>',
-      '/<%\s*endfor\s*%>/' => '<?php endfor; ?>',
-      '/<%\s*while\s*\((.+?)\)\s*%>/' => '<?php while ($1): ?>',
-      '/<%\s*endwhile\s*%>/' => '<?php endwhile; ?>',
-      '/<%\s*switch\s*\((.+?)\)\s*%>/' => '<?php switch ($1): ?>',
-      '/<%\s*case\s+(.+?)\s*%>/' => '<?php case $1: ?>',
-      '/<%\s*break\s*%>/' => '<?php break; ?>',
-      '/<%\s*endswitch\s*%>/' => '<?php endswitch; ?>',
-    ];
-
-
-    foreach ($patterns as $pattern => $replacement) {
-      $content = preg_replace($pattern, $replacement, $content);
-    }
-
-    // CSRF and method spoofing: support both with and without '='\n
-    $content = str_replace('<% csrf_token %>', '<?php echo csrf_token(); ?>', $content);
-    $content = str_replace('<%= csrf_token %>', '<?php echo csrf_token(); ?>', $content);
-    $content = preg_replace('/<% method\s*(.+?)\s*%>/', '<?php echo method($1); ?>', $content);
-
-    // Route with parameters for tags written without '=' (if any remain)\n
-    $content = preg_replace('/<%\s*route\s*\((.+?)\)\s*%>/', '<?php echo route($1); ?>', $content);
-
-    // Optionally remove extra whitespace between HTML tags\n
-    $content = preg_replace('/>\s+</', '><', $content);
-
-    $originalContent = $content;
-
-    $content = $this->processTagsWithLineNumbers(
-      $originalContent,
-      '/<%=\s*(.+?)\s*%>/',
-      function ($matches, $line) {
-        $expr = trim($matches[1]);
-
-        // Generate PHP code with line directive
-        $code = "<?php #line $line \"{$this->templatePath}\" ?>\n";
-
-        if (stripos($expr, 'route(') === 0) {
-          $code .= "<?php echo $expr; ?>";
-        } else {
-          $code .= "<?php echo htmlspecialchars(($expr) ?? '', ENT_QUOTES, 'UTF-8'); ?>";
-        }
-
-        return $code;
-      }
-    );
-
-
-    return $content;
-  }
-
-  private function processTagsWithLineNumbers(
-    string $originalContent,
-    string $pattern,
-    callable $processor
-  ): string {
-    $offset = 0;
-    $content = $originalContent;
-
-    while (preg_match($pattern, $content, $matches, PREG_OFFSET_CAPTURE, $offset)) {
-      $startPos = $matches[0][1];
-      $lineNumber = substr_count(substr($originalContent, 0, $startPos), "\n") + 1;
-
-      // Get replacement code with line directive
-      $replacement = $processor($matches, $lineNumber);
-
-      // Calculate replacement length
-      $matchLength = strlen($matches[0][0]);
-      $replacementLength = strlen($replacement);
-
-      // Replace in content
-      $content = substr_replace(
-        $content,
-        $replacement,
-        $startPos,
-        $matchLength
-      );
-
-      // Update offset for next search
-      $offset = $startPos + $replacementLength;
-    }
-
-    return $content;
-  }
-
-
+  /**
+   * Gets the path to the compiled template.
+   *
+   * @return string The compiled template path.
+   */
   public function getCompiledPath(): string
   {
     return $this->compiledPath;
-  }
-
-  function cacheViewName(string $viewPath): string
-  {
-    // Generate a stable cache filename based solely on the view name
-    return md5($viewPath) . '.php';
   }
 }

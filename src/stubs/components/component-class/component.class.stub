@@ -1,0 +1,23 @@
+<?php
+
+namespace {{namespace}};
+
+class {{componentName}}
+{
+    public array $props = [];
+
+    public function __construct(array $props = [])
+    {
+        $this->props = $props;
+    }
+
+    /**
+     * Returns the view path for this component.
+     *
+     * @return string
+     */
+    public function render(): string
+    {
+        return view('{{viewName}}', get_object_vars($this));
+    }
+}
