@@ -1,0 +1,4 @@
+<!-- Component view stub for {{componentName}} -->
+<div class="">
+    {{slot}}
+</div>
