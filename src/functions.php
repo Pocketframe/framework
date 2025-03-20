@@ -26,6 +26,47 @@ if (!function_exists('base_path')) {
   }
 }
 
+
+/**
+ * Render a component view
+ *
+ * This function renders a component view by rendering a PHP file in the resources/views/components directory.
+ * The component view is passed the given data as variables.
+ *
+ * @param string $component The name of the component to render
+ * @param array $data The data to pass to the component view
+ * @return string The rendered component view
+ */
+if (!function_exists('view')) {
+  function view(string $component, array $data = []): string
+  {
+    $viewPath = base_path("resources/views/components/{$component}.view.php");
+
+    if (!file_exists($viewPath)) {
+      throw new Exception("Component view not found: {$viewPath}");
+    }
+
+    extract($data);
+    ob_start();
+    require $viewPath;
+    return ob_get_clean();
+  }
+}
+
+/**
+ * Retrieves the content of a block by name.
+ * @param string $name The name of the block.
+ * @return string The content of the block, or an empty string if not found.
+ */
+if (!function_exists('block')) {
+  function block(string $name): string
+  {
+    global $__template;
+    return $__template ? $__template->getBlock($name) : '';
+  }
+}
+
+
 /**
  * Check if the current URL matches a given path
  *
@@ -164,7 +205,10 @@ if (!function_exists('env')) {
   function env(string $key, $default = null)
   {
     $value = getenv($key);
-    return $value !== false ? $value : $default;
+    if ($value === false) {
+      return $default;
+    }
+    return trim($value, "\"'");
   }
 }
 
