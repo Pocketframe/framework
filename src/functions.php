@@ -310,6 +310,13 @@ if (!function_exists('store_path')) {
   }
 }
 
+if (!function_exists('database_path')) {
+  function database_path(?string $path = null): string
+  {
+    return base_path('database/' . $path);
+  }
+}
+
 /**
  * Sanitize a string
  *
