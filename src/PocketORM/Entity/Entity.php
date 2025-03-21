@@ -2,12 +2,16 @@
 
 namespace Pocketframe\PocketORM\Entity;
 
+use Carbon\Carbon;
 use Pocketframe\Essentials\Utilities\Utilities;
 use Pocketframe\PocketORM\Concerns\HasTimestamps;
-use Pocketframe\PocketORM\Database\DataMapper;
 use Pocketframe\PocketORM\Database\DataMapping;
 use Pocketframe\PocketORM\Exceptions\MassAssignmentError;
 use Pocketframe\PocketORM\Exceptions\ModelException;
+use Pocketframe\PocketORM\Relationships\Bridge;
+use Pocketframe\PocketORM\Relationships\HasMultiple;
+use Pocketframe\PocketORM\Relationships\HasSingle;
+use Pocketframe\PocketORM\Relationships\LinkedTo;
 
 abstract class Entity
 {
@@ -22,6 +26,12 @@ abstract class Entity
   protected array $dates = ['created_at', 'updated_at'];
   protected bool $timestamps = true;
 
+  // Relationship type constants
+  const HAS_SINGLE = HasSingle::class;
+  const HAS_MULTIPLE = HasMultiple::class;
+  const LINKED_TO = LinkedTo::class;
+  const BRIDGE = Bridge::class;
+
 
   public function __construct(array $attributes = [])
   {
@@ -35,7 +45,7 @@ abstract class Entity
     }
 
     if (isset($this->links[$name])) {
-      return $this->resolveLink($name);
+      return $this->link($name);
     }
 
     if (in_array($name, $this->dates)) {
@@ -87,14 +97,22 @@ abstract class Entity
   }
 
 
-  protected function resolveLink(string $name)
+  public function link(string $relation)
   {
-    $config = $this->links[$name];
-    $relationClass = $config[0];
+    if (!isset($this->links[$relation])) {
+      throw new \Exception("Undefined relationship: {$relation}");
+    }
+
+    if (array_key_exists($relation, $this->eagerLoaded)) {
+      return $this->eagerLoaded[$relation];
+    }
+
+    $config = $this->links[$relation];
+    $relationshipClass = $config[0];
     $relatedClass = $config[1];
     $foreignKey = $config[2] ?? null;
 
-    return new $relationClass(
+    return new $relationshipClass(
       $this,
       $relatedClass,
       $foreignKey ?? $this->guessForeignKey()
