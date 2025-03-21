@@ -1,0 +1,11 @@
+<?php
+
+namespace {{namespace}};
+
+use Pocketframe\PocketORM\Entity\Entity;
+
+class {{entityName}} extends Entity {
+    protected static string \$table = '';
+    protected array \$fillable = [];
+    protected array \$links = [];
+}

@@ -1,0 +1,9 @@
+<?php
+
+use Pocketframe\PocketORM\Data\DataPlanter;
+
+class {{planterName}} extends DataPlanter {
+    public function plant(): void {
+        // Seeding logic
+    }
+}
