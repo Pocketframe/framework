@@ -2,6 +2,8 @@
 
 namespace Pocketframe\PocketORM\Concerns;
 
+use Carbon\Carbon;
+
 trait HasTimestamps
 {
   protected array $dates = [];
