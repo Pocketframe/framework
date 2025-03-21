@@ -3,10 +3,10 @@
 namespace Pocketframe\PocketORM\Data;
 
 // same as factory
-class Blueprint
+abstract class Blueprint
 {
-  private \Faker\Generator $faker;
-  private array $definitions = [];
+  private Generator $faker;
+  protected string $entity;
   private array $states = [];
 
 
@@ -15,36 +15,23 @@ class Blueprint
     $this->faker = Factory::create();
   }
 
-  public function define(string $modelClass, callable $attributes): self
+  abstract public function describe(): array;
+
+  public function state(string $entityClass, callable $state): self
   {
-    $this->definitions[$modelClass] = $attributes;
+    $this->states[$entityClass][] = $state;
     return $this;
   }
 
-  public function state(string $modelClass, callable $state): self
+  public function make(array $overrides = []): array
   {
-    $this->states[$modelClass][] = $state;
-    return $this;
+    return array_merge($this->describe($this->faker), $overrides);
   }
 
-  public function make(string $modelClass, array $overrides = []): object
+
+  public function create(array $overrides = [])
   {
-    $attributes = array_merge(
-      $this->applyDefinitions($modelClass),
-      $overrides
-    );
-
-    return new $modelClass($attributes);
-  }
-
-  private function applyDefinitions(string $modelClass): array
-  {
-    $attributes = call_user_func($this->definitions[$modelClass], $this->faker);
-
-    foreach ($this->states[$modelClass] ?? [] as $state) {
-      $attributes = array_merge($attributes, $state($this->faker));
-    }
-
-    return $attributes;
+    $attributes = $this->make($overrides);
+    return (new $this->entity)->fill($attributes)->save();
   }
 }
