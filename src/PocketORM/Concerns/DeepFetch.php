@@ -2,7 +2,7 @@
 
 namespace Pocketframe\PocketORM\Concerns;
 
-use Pocketframe\Essentials\RecordSet;
+use Pocketframe\PocketORM\Essentials\RecordSet;
 
 // same as eager loading
 trait DeepFetch

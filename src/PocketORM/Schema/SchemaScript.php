@@ -15,7 +15,7 @@ abstract class SchemaScript
     $tableBuilder = new TableBuilder($table);
     $blueprint($tableBuilder);
 
-    Connection::get()->exec(
+    Connection::getInstance()->exec(
       $tableBuilder->compileCreate()
     );
   }
@@ -25,13 +25,13 @@ abstract class SchemaScript
     $tableBuilder = new TableBuilder($table);
     $blueprint($tableBuilder);
 
-    Connection::get()->exec(
+    Connection::getInstance()->exec(
       $tableBuilder->compileAlter()
     );
   }
 
   protected function dropTable(string $table): void
   {
-    Connection::get()->exec("DROP TABLE IF EXISTS {$table}");
+    Connection::getInstance()->exec("DROP TABLE IF EXISTS {$table}");
   }
 }

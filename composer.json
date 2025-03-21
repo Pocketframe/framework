@@ -11,7 +11,8 @@
         "nesbot/carbon": "^3.x-dev"
     },
     "require-dev": {
-        "symfony/var-dumper": "7.3.x-dev"
+        "symfony/var-dumper": "7.3.x-dev",
+        "fakerphp/faker": "^2.0.x-dev"
     },
     "license": "MIT",
     "autoload": {
