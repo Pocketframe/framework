@@ -26,6 +26,22 @@ class Kernel
         'class' => \Pocketframe\Console\Commands\CreateControllerCommand::class,
         'desc'  => 'Generate a new controller file. Options: --api, --resource (-r), --invokable (-i).'
       ],
+      'entity:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateEntityCommand::class,
+        'desc' => 'Create a new entity class'
+      ],
+      'schema:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateSchemaScriptCommand::class,
+        'desc' => 'Create a new schema script'
+      ],
+      'planter:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateDataPlanterCommand::class,
+        'desc' => 'Create a new data planter'
+      ],
+      'blueprint:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateBlueprintCommand::class,
+        'desc' => 'Create a new Entity blueprint'
+      ],
       'middleware:create'  => [
         'class' => \Pocketframe\Console\Commands\CreateMiddlewareCommand::class,
         'desc'  => 'Generate a new middleware class.'
