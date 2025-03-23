@@ -44,7 +44,7 @@ class Response
    * @param int $status The HTTP status code to set (defaults to 200 OK)
    * @return Response A new Response object containing the rendered view
    */
-  public static function view($view, $data = [], $status = self::OK): Response
+  public static function view(string $view, array $data = [], int $status = self::OK): Response
   {
     $content = View::render($view, $data);
     return new self($content, $status, [
@@ -64,7 +64,7 @@ class Response
    * @param int $status The HTTP status code to set
    * @return Response The new Response object
    */
-  public static function json($data, $status = self::OK): Response
+  public static function json(array $data, int $status = self::OK): Response
   {
     return new static(
       json_encode($data),
