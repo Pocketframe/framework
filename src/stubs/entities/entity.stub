@@ -5,7 +5,20 @@ namespace {{namespace}};
 use Pocketframe\PocketORM\Entity\Entity;
 
 class {{entityName}} extends Entity {
-    protected static string \$table = '';
-    protected array \$fillable = [];
-    protected array \$links = [];
+    /**
+     * Define the table name.
+     */
+    protected static string $table = '{{tableName}}';
+
+    /**
+     * Define the fillable attributes.
+     */
+    protected array $fillable = [];
+
+    /**
+     * Define the relationships.
+     */
+    protected array $relationship = [
+      //  'table_name' => [Entity::HAS_ONE, EntityName::class, 'table_id']
+    ];
 }
