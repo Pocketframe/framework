@@ -23,8 +23,8 @@ class ContainerRegister
     });
 
     $container->bind(Database::class, function () {
-      $config = require config_path('database');
-      return new Database($config['database']);
+      $config = config('database.database');
+      return new Database($config);
     });
 
     $container->bind(Logger::class, function () {
