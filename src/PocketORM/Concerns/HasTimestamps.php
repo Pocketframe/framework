@@ -2,11 +2,12 @@
 
 namespace Pocketframe\PocketORM\Concerns;
 
+use Pocketframe\Essentials\Utilities\StringUtils;
 use Carbon\Carbon;
 
 trait HasTimestamps
 {
-  protected array $dates = [];
+  protected array $dates = ['created_at', 'updated_at'];
   protected bool $timestamps = true;
 
   public function freshTimestamp(): Carbon
