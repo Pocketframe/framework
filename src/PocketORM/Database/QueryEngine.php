@@ -3,45 +3,32 @@
 namespace Pocketframe\PocketORM\Database;
 
 use PDO;
-use Pocketframe\Exceptions\Database\QueryException;
-use Pocketframe\PocketORM\Concerns\DeepFetch;
-use Pocketframe\PocketORM\Essentials\RecordSet;
-
-/**
- * QueryEngine class is responsible for generating SQL queries and
- * executing them.
- *
- * Example
- * $query = new QueryEngine('users');
- * $results = $query
- *   ->select(['name', 'email'])
- *   ->includeTotal('posts', 'post_count')
- *   ->havingLinked('posts', function($query) {
- *     $query->where('views', '>', 100);
- *   })
- *   ->get();
- *
- * @package Pocketframe\PocketORM
- * @author William Asaba
- */
+use PDOException;
+use Pocketframe\PocketORM\Essentials\DataSet;
 
 class QueryEngine
 {
-  use DeepFetch;
-  private string $table;
-  private array $select = ['*'];
-  private array $wheres = [];
-  private array $joins = [];
-  private array $groups = [];
-  private array $havings = [];
-  private array $orders = [];
-  private ?int $limit = null;
-  private array $bindings = [];
+  protected string $table;
+  protected array $select = ['*'];
+  protected array $wheres = [];
+  protected array $joins = [];
+  protected array $groups = [];
+  protected array $havings = [];
+  protected array $orders = [];
+  protected ?int $limit = null;
+  protected array $bindings = [];
+  protected array $insertData = [];
+  protected array $updateData = [];
+  protected bool $isDelete = false;
+  protected array $rawSelects = [];
+  protected ?string $keyByColumn = null;
 
   public function __construct(string $table)
   {
     $this->table = $table;
   }
+
+  // SELECT METHODS
 
   public function select(array $columns): self
   {
@@ -49,18 +36,108 @@ class QueryEngine
     return $this;
   }
 
-  public function where(string $column, string $operator, $value): self
+  /**
+   * Add raw SQL expression to SELECT clause
+   *
+   * @param string $expression Raw SQL select expression
+   * @return self
+   *
+   * @example ->selectRaw('COUNT(*) AS total')
+   * @example ->selectRaw('MAX(created_at) AS last_date')
+   */
+  public function selectRaw(string $expression): self
   {
-    $this->wheres[] = "{$column} {$operator} ?";
+    $this->select = [];
+    $this->rawSelects[] = $expression;
+    return $this;
+  }
+
+
+  /**
+   * Key results by specified column
+   *
+   * @param string $column Column name to use as array keys
+   * @return self
+   *
+   * @note If multiple rows have the same column value,
+   *       the last one will overwrite previous entries
+   * @example ->keyBy('id')->get() returns results indexed by ID
+   */
+  public function keyBy(string $column): self
+  {
+    $this->keyByColumn = $column;
+    return $this;
+  }
+
+
+  // WHERE METHODS
+
+  public function where(string $column, string $operator, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'basic',
+      'column' => $column,
+      'operator' => $operator,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
     $this->bindings[] = $value;
     return $this;
   }
 
-  public function join(string $table, string $first, string $operator, string $second): self
+  public function orWhere(string $column, string $operator, $value): self
   {
-    $this->joins[] = "JOIN {$table} ON {$first} {$operator} {$second}";
+    return $this->where($column, $operator, $value, 'OR');
+  }
+
+  public function whereIn(string $column, array $values, string $boolean = 'AND', bool $not = false): self
+  {
+    $this->wheres[] = [
+      'type' => 'in',
+      'column' => $column,
+      'values' => $values,
+      'boolean' => $boolean,
+      'not' => $not,
+    ];
+    $this->bindings = array_merge($this->bindings, $values);
     return $this;
   }
+
+  public function orWhereIn(string $column, array $values): self
+  {
+    return $this->whereIn($column, $values, 'OR');
+  }
+
+  public function whereNull(string $column, string $boolean = 'AND', bool $not = false): self
+  {
+    $this->wheres[] = [
+      'type' => 'null',
+      'column' => $column,
+      'boolean' => $boolean,
+      'not' => $not,
+    ];
+    return $this;
+  }
+
+  public function orWhereNull(string $column): self
+  {
+    return $this->whereNull($column, 'OR');
+  }
+
+  public function whereNotNull(string $column, string $boolean = 'AND'): self
+  {
+    return $this->whereNull($column, $boolean, true);
+  }
+
+  // JOIN METHODS
+
+  public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): self
+  {
+    $this->joins[] = "$type JOIN $table ON $first $operator $second";
+    return $this;
+  }
+
+  // GROUPING METHODS
 
   public function groupBy(string $column): self
   {
@@ -70,14 +147,16 @@ class QueryEngine
 
   public function having(string $column, string $operator, $value): self
   {
-    $this->havings[] = "{$column} {$operator} ?";
+    $this->havings[] = "$column $operator ?";
     $this->bindings[] = $value;
     return $this;
   }
 
+  // ORDER & LIMIT
+
   public function orderBy(string $column, string $direction = 'ASC'): self
   {
-    $this->orders[] = "{$column} {$direction}";
+    $this->orders[] = "$column $direction";
     return $this;
   }
 
@@ -87,179 +166,192 @@ class QueryEngine
     return $this;
   }
 
-  public function get(): RecordSet
-  {
-    $sql = $this->compileSelect();
-    return $this->execute($sql);
-  }
-
-  public function insertBatch(array $data): int
-  {
-    if (empty($data)) return 0;
-
-    $columns = implode(', ', array_keys($data[0]));
-    $placeholders = implode(', ', array_fill(0, count($data[0]), '?'));
-    $values = [];
-
-    foreach ($data as $row) {
-      $values = array_merge($values, array_values($row));
-    }
-
-    $sql = "INSERT INTO {$this->table} ({$columns}) VALUES " .
-      implode(', ', array_fill(0, count($data), "({$placeholders})"));
-
-    try {
-      $stmt = Connection::getInstance()->prepare($sql);
-      $stmt->execute($values);
-      return $stmt->rowCount();
-    } catch (\PDOException $e) {
-      throw new QueryException("Batch insert failed: " . $e->getMessage());
-    }
-  }
-
-  private function compileSelect(): string
-  {
-    $sql = "SELECT " . implode(', ', $this->select) . " FROM {$this->table}";
-
-    if (!empty($this->joins)) {
-      $sql .= " " . implode(" ", $this->joins);
-    }
-
-    if (!empty($this->wheres)) {
-      $sql .= " WHERE " . implode(" AND ", $this->wheres);
-    }
-
-    if (!empty($this->groups)) {
-      $sql .= " GROUP BY " . implode(", ", $this->groups);
-    }
-
-    if (!empty($this->havings)) {
-      $sql .= " HAVING " . implode(" AND ", $this->havings);
-    }
-
-    if (!empty($this->orders)) {
-      $sql .= " ORDER BY " . implode(", ", $this->orders);
-    }
-
-    if ($this->limit !== null) {
-      $sql .= " LIMIT " . $this->limit;
-    }
-
-    return $sql;
-  }
-
-  public function havingLinked(string $relation, callable $constraints): self
-  {
-    $related = new $relation();
-    $table = $related::getTable();
-
-    $this->join(
-      $table,
-      "{$this->table}.id",
-      '=',
-      "{$table}." . $related->guessForeignKey()
-    );
-
-    $constraints(new QueryEngine($table));
-
-    return $this;
-  }
-
-  public function includeTotal(string $relation, string $as): self
-  {
-    $related = new $relation();
-    $foreignKey = $related->guessForeignKey();
-
-    $this->selectSub(
-      (new QueryEngine($related::getTable()))
-        ->selectRaw("COUNT(*)")
-        ->whereColumn(
-          "{$related::getTable()}.{$foreignKey}",
-          "=",
-          "{$this->table}.id"
-        ),
-      $as
-    );
-
-    return $this;
-  }
-
-  public function selectRaw(string $expression): self
-  {
-    $this->select[] = $expression;
-    return $this;
-  }
-
-  public function whereColumn(string $first, string $operator, string $second): self
-  {
-    $this->wheres[] = "{$first} {$operator} {$second}";
-    return $this;
-  }
-
-
-  private function selectSub(QueryEngine $query, string $alias): void
-  {
-    $this->select[] = "({$query->compileSelect()}) AS {$alias}";
-    $this->bindings = array_merge($this->bindings, $query->bindings);
-  }
-
-  public function first(): ?object
-  {
-    $this->limit(1);
-    return $this->get()->first();
-  }
+  // CRUD OPERATIONS
 
   public function insert(array $data): int
   {
-    $columns = implode(', ', array_keys($data));
+    $columns = implode(', ', array_map(fn($col) => "`$col`", array_keys($data)));
     $placeholders = implode(', ', array_fill(0, count($data), '?'));
-
-    $sql = "INSERT INTO {$this->table} ({$columns}) VALUES ({$placeholders})";
-    $this->execute($sql, array_values($data));
-
+    $sql = "INSERT INTO `{$this->table}` ($columns) VALUES ($placeholders)";
+    $stmt = $this->executeStatement($sql, array_values($data));
     return Connection::getInstance()->lastInsertId();
   }
 
   public function update(array $data): int
   {
-    $set = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($data)));
-    $values = array_values($data);
-
-    $sql = "UPDATE {$this->table} SET {$set}";
-
-    if (!empty($this->wheres)) {
-      $sql .= " WHERE " . implode(' AND ', $this->wheres);
-      $values = array_merge($values, $this->bindings);
-    }
-
-    $stmt = Connection::getInstance()->prepare($sql);
-    $stmt->execute($values);
-
+    $set = implode(', ', array_map(fn($k) => "`$k` = ?", array_keys($data)));
+    $sql = "UPDATE `{$this->table}` SET $set " . $this->compileWheres();
+    $bindings = array_merge(array_values($data), $this->bindings);
+    $stmt = $this->executeStatement($sql, $bindings);
     return $stmt->rowCount();
   }
 
   public function delete(): int
   {
-    $sql = "DELETE FROM {$this->table}";
-
-    if (!empty($this->wheres)) {
-      $sql .= " WHERE " . implode(' AND ', $this->wheres);
-    }
-
-    $stmt = Connection::getInstance()->prepare($sql);
-    $stmt->execute($this->bindings);
-
+    $sql = "DELETE FROM `{$this->table}` " . $this->compileWheres();
+    $stmt = $this->executeStatement($sql, $this->bindings);
     return $stmt->rowCount();
   }
 
-  private function execute(string $sql, array $params = []): RecordSet
+  // QUERY EXECUTION
+
+  public function get(): DataSet
+  {
+    $sql = $this->compileSelect();
+    return $this->executeQuery($sql);
+  }
+
+  public function first(): ?object
+  {
+    $this->limit(1);
+    $result = $this->get();
+    return $result->first();
+  }
+
+  // SQL COMPILATION
+
+  protected function compileSelect(): string
+  {
+    $selectColumns = [];
+
+    // Handle regular selects
+    foreach ($this->select as $col) {
+      $selectColumns[] = $col === '*' ? $col : "`$col`";
+    }
+
+    // Handle raw selects
+    foreach ($this->rawSelects as $raw) {
+      $selectColumns[] = $raw;
+    }
+
+    if (empty($selectColumns)) {
+      $selectColumns = ['*'];
+    }
+
+    $sql = "SELECT " . implode(', ', $selectColumns) . " FROM `{$this->table}`";
+
+    if (!empty($this->joins)) {
+      $sql .= ' ' . implode(' ', $this->joins);
+    }
+
+    $sql .= $this->compileWheres();
+
+    if (!empty($this->groups)) {
+      $sql .= ' GROUP BY ' . implode(', ', $this->groups);
+    }
+
+    if (!empty($this->havings)) {
+      $sql .= ' HAVING ' . implode(' AND ', $this->havings);
+    }
+
+    if (!empty($this->orders)) {
+      $sql .= ' ORDER BY ' . implode(', ', $this->orders);
+    }
+
+    if ($this->limit !== null) {
+      $sql .= " LIMIT {$this->limit}";
+    }
+
+    return $sql;
+  }
+
+  protected function compileWheres(): string
+  {
+    if (empty($this->wheres)) return '';
+
+    $clauses = [];
+    foreach ($this->wheres as $index => $where) {
+      $clause = $index === 0 ? '' : $where['boolean'] . ' ';
+
+      switch ($where['type']) {
+        case 'basic':
+          $clause .= "`{$where['column']}` {$where['operator']} ?";
+          break;
+        case 'in':
+          $placeholders = implode(', ', array_fill(0, count($where['values']), '?'));
+          $not = $where['not'] ? 'NOT ' : '';
+          $clause .= "`{$where['column']}` {$not}IN ($placeholders)";
+          break;
+        case 'null':
+          $not = $where['not'] ? 'NOT ' : '';
+          $clause .= "`{$where['column']}` IS {$not}NULL";
+          break;
+      }
+
+      $clauses[] = $clause;
+    }
+
+    return ' WHERE ' . implode(' ', $clauses);
+  }
+
+  // HELPER METHODS
+
+  protected function executeQuery(string $sql): DataSet
+  {
+    $stmt = $this->executeStatement($sql, $this->bindings);
+    $data = $stmt->fetchAll(PDO::FETCH_OBJ);
+
+    // Key results by specified column if requested
+    if ($this->keyByColumn !== null) {
+      $keyedData = [];
+      foreach ($data as $row) {
+        $keyValue = $row[$this->keyByColumn] ?? null;
+        if ($keyValue !== null) {
+          $keyedData[$keyValue] = $row;
+        }
+      }
+      $data = $keyedData;
+    }
+
+    return new DataSet($data);
+  }
+
+  protected function executeStatement(string $sql, array $bindings = [])
   {
     try {
       $stmt = Connection::getInstance()->prepare($sql);
-      $stmt->execute($params);
-      return new RecordSet($stmt->fetchAll(PDO::FETCH_OBJ));
-    } catch (\PDOException $e) {
-      throw new QueryException("Query failed: " . $e->getMessage());
+      $stmt->execute($bindings);
+      return $stmt;
+    } catch (PDOException $e) {
+      throw new PDOException($e->getMessage(), (int)$e->getCode(), $e);
     }
+  }
+
+  // UTILITY METHODS
+
+  public function toSql(): string
+  {
+    if (!empty($this->insertData)) {
+      return $this->compileInsert();
+    } elseif (!empty($this->updateData)) {
+      return $this->compileUpdate();
+    } elseif ($this->isDelete) {
+      return $this->compileDelete();
+    } else {
+      return $this->compileSelect();
+    }
+  }
+
+  protected function compileInsert(): string
+  {
+    $columns = implode(', ', array_map(fn($col) => "`$col`", array_keys($this->insertData)));
+    $placeholders = implode(', ', array_fill(0, count($this->insertData), '?'));
+    return "INSERT INTO `{$this->table}` ($columns) VALUES ($placeholders)";
+  }
+
+  protected function compileUpdate(): string
+  {
+    $set = implode(', ', array_map(fn($k) => "`$k` = ?", array_keys($this->updateData)));
+    return "UPDATE `{$this->table}` SET $set " . $this->compileWheres();
+  }
+
+  protected function compileDelete(): string
+  {
+    return "DELETE FROM `{$this->table}` " . $this->compileWheres();
+  }
+
+  public function getBindings(): array
+  {
+    return $this->bindings;
   }
 }
