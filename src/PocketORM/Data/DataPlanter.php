@@ -19,7 +19,7 @@ abstract class DataPlanter
     $columns = implode(', ', array_keys($data[0]));
     $placeholders = implode(', ', array_fill(0, count($data[0]), '?'));
 
-    $stmt = Connection::get()->prepare(
+    $stmt = Connection::getInstance()->prepare(
       "INSERT INTO {$table} ({$columns}) VALUES ({$placeholders})"
     );
 

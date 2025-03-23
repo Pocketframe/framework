@@ -3,13 +3,13 @@
 namespace Pocketframe\PocketORM\Relationships;
 
 use Pocketframe\PocketORM\Database\QueryEngine;
-use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Entity\Entity;
+use Pocketframe\PocketORM\Essentials\DataSet;
 
 /**
- * HasMultiple: one-to-many relationship (a parent has multiple children).
+ * HasOne: one-to-one relationship where the parent "has one" child.
  */
-class HasMultiple
+class HasOne
 {
   private Entity $parent;
   private string $related;
@@ -24,14 +24,15 @@ class HasMultiple
 
   public function eagerLoad(array $parents): array
   {
-    $parentIds = array_column(array_map(fn($p) => (array)$p, $parents), 'id');
+    // Collect foreign key values from each parent
+    $foreignKeys = array_column($parents, $this->foreignKey);
 
-    $relatedRecords = (new QueryEngine($this->related::getTable(), $this->related::class))
-      ->whereIn($this->foreignKey, $parentIds)
-      ->groupBy($this->foreignKey)
-      ->get();
-
-    return $relatedRecords->all();
+    // Fetch related records whose ID is in the parent's foreignKey array
+    return (new QueryEngine($this->related::getTable(), $this->related::class))
+      ->whereIn('id', array_unique($foreignKeys))
+      ->keyBy('id')
+      ->get()
+      ->all();
   }
 
   public function getForeignKey(): string
@@ -44,10 +45,10 @@ class HasMultiple
     return 'id';
   }
 
-  public function get(): DataSet
+  public function get(): ?object
   {
     return (new QueryEngine($this->related::getTable(), $this->related::class))
       ->where($this->foreignKey, '=', $this->parent->id)
-      ->get();
+      ->first();
   }
 }

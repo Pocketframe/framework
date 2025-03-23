@@ -8,12 +8,13 @@ use Faker\Generator;
 class {{blueprintName}} extends Blueprint {
     protected string $entity = \App\Entities\{{entityName}}::class;
 
-    public function describe(Generator $faker): array {
+    public function describe(Generator $faker): array
+    {
         return [
-            // Describe your default attribute values
-            'name' => $faker->name,
-            'email' => $faker->unique()->safeEmail,
-            'created_at' => $faker->dateTimeBetween('-1 year', 'now'),
+            // Describe your default attribute values. See an example below.
+            // 'name' => $faker->name,
+            // 'email' => $faker->unique()->safeEmail,
+            // 'created_at' => $faker->dateTimeBetween('-1 year', 'now'),
         ];
     }
 }

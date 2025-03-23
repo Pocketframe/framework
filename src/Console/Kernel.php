@@ -1,4 +1,3 @@
-#!/usr/bin/env php
 <?php
 
 declare(strict_types=1);
@@ -28,11 +27,15 @@ class Kernel
       ],
       'entity:create' => [
         'class' => \Pocketframe\Console\Commands\CreateEntityCommand::class,
-        'desc' => 'Create a new entity class'
+        'desc' => 'Create a new entity (use -s for migration, -b for blueprint)'
       ],
       'schema:create' => [
-        'class' => \Pocketframe\Console\Commands\CreateSchemaScriptCommand::class,
-        'desc' => 'Create a new schema script'
+        'class' => \Pocketframe\Console\Commands\CreateTableScriptCommand::class,
+        'desc' => 'Create a new table script'
+      ],
+      'schema' => [
+        'class' => \Pocketframe\Console\Commands\SchemaCommand::class,
+        'desc'  => 'Manage database schemas (apply, rollback, fresh)'
       ],
       'planter:create' => [
         'class' => \Pocketframe\Console\Commands\CreateDataPlanterCommand::class,
@@ -73,6 +76,10 @@ class Kernel
       'help' => [
         'class' => \Pocketframe\Console\Commands\HelpCommand::class,
         'desc'  => 'Display a list of all available commands.'
+      ],
+      'about' => [
+        'class' => \Pocketframe\Console\Commands\AboutCommand::class,
+        'desc'  => 'Display information about the Pocketframe framework.'
       ],
     ];
 

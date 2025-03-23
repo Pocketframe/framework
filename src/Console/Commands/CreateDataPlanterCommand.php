@@ -19,22 +19,28 @@ class CreateDataPlanterCommand implements CommandInterface
   {
     $planterName = $this->args[0] ?? null;
     if (!$planterName) {
-      echo "Usage: php pocket planter:create UserPlanter\n";
+      echo "Usage: php pocket planter:create PlanterName\n";
       exit(1);
     }
 
-    $targetPath = base_path("database/planters/{$planterName}.php");
+    $dataPlanterName = ucfirst($planterName) . "Planter";
+    $targetPath = base_path("database/planters/{$dataPlanterName}.php");
+
+    if (file_exists($targetPath)) {
+      echo "Data planter already exists: {$targetPath}\n";
+      exit(1);
+    }
 
     if (!is_dir(base_path("database/planters"))) mkdir(base_path("database/planters"), 0777, true);
 
     $stub = file_get_contents("{$this->stubPath}/planter.stub");
     $content = str_replace(
-      ['{{planterName}}'],
-      [$planterName],
+      ['{{dataPlanterName}}'],
+      [$dataPlanterName],
       $stub
     );
 
     file_put_contents($targetPath, $content);
-    echo "Data planter created: {$targetPath}\n";
+    echo "💪 Data planter created: {$targetPath}\n";
   }
 }

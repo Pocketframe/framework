@@ -2,6 +2,9 @@
 
 namespace Pocketframe\PocketORM\Data;
 
+use Faker\Factory;
+use Faker\Generator;
+
 // same as factory
 abstract class Blueprint
 {
@@ -15,7 +18,7 @@ abstract class Blueprint
     $this->faker = Factory::create();
   }
 
-  abstract public function describe(): array;
+  abstract public function describe(Generator $faker): array;
 
   public function state(string $entityClass, callable $state): self
   {

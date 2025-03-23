@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pocketframe\Database;
 
 use PDO;
+use PDOException;
 use PDOStatement;
 use Pocketframe\Exceptions\Database\QueryException;
 use Pocketframe\Exceptions\DatabaseException;
@@ -37,13 +38,13 @@ class Database
    */
   public function __construct($database)
   {
-    $dsn = 'mysql:' . http_build_query($database, '', ';');
+    $dsn = "mysql:host={$database['host']};port={$database['port']};dbname={$database['database']};charset=utf8mb4";
 
     try {
       $this->connection = new PDO($dsn, $database['username'], $database['password']);
       $this->connection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    } catch (DatabaseException $e) {
-      throw new DatabaseException("Database connection failed: " . $e->getMessage());
+    } catch (PDOException $e) {
+      throw new PDOException("Database connection failed: " . $e->getMessage());
     }
   }
 
@@ -571,7 +572,7 @@ class Database
    *
    * @return array|string The first record from the query
    */
-  public function first(): array|string
+  public function first(): array|string|Response
   {
     try {
       $query = "SELECT " . implode(', ', $this->columns) . " FROM {$this->table}";

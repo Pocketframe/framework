@@ -23,8 +23,23 @@ class CreateBlueprintCommand implements CommandInterface
       exit(1);
     }
 
-    $targetDir = base_path("database/Blueprints");
-    $blueprintName = "{$entityName}Blueprint";
+    $entityFile = base_path("app/Entities/{$entityName}.php");
+    if (!file_exists($entityFile)) {
+      echo "Entity {$entityName} does not exist. Would you like to create it first? (y/n)\n";
+      $answer = trim(strtolower(readline()));
+      if ($answer == 'y') {
+        passthru("php pocket entity:create {$entityName}");
+      } else {
+        $answer = trim(strtolower(readline('Continue creating a blueprint? (y/n): ')));
+        if ($answer == 'n') {
+          exit(1);
+        }
+      }
+    }
+
+
+    $targetDir = base_path("database/blueprints");
+    $blueprintName = ucfirst($entityName) . "Blueprint";
     $targetPath = "{$targetDir}/{$blueprintName}.php";
 
     if (file_exists($targetPath)) {
@@ -44,6 +59,6 @@ class CreateBlueprintCommand implements CommandInterface
     );
 
     file_put_contents($targetPath, $content);
-    echo "💡 Blueprint created: {$targetPath}\n";
+    echo "💪 Blueprint created: {$targetPath}\n";
   }
 }
