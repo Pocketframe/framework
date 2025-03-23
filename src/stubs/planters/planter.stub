@@ -2,7 +2,7 @@
 
 use Pocketframe\PocketORM\Data\DataPlanter;
 
-class {{planterName}} extends DataPlanter {
+class {{dataPlanterName}} extends DataPlanter {
     public function plant(): void {
         // Seeding logic
     }
