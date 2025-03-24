@@ -1,14 +1,31 @@
 {
     "name": "pocketframe/framework",
-    "description": "Pocketframe core engine",
+    "description": "Pocketframe is a lightweight yet powerful PHP framework designed to simplify modern web application development. With its intuitive structure, elegant syntax, and modular approach, Pocketframe helps developers build scalable, high-performance applications effortlessly.",
     "type": "library",
+    "keywords": [
+        "pocketframe",
+        "framework"
+    ],
+    "support": {
+        "issues": "https://github.com/pocketframe/framework/issues",
+        "source": "https://github.com/pocketframe/framework"
+    },
     "require": {
+        "php": "^8.2",
+       "ext-ctype": "*",
+        "ext-filter": "*",
+        "ext-hash": "*",
+        "ext-mbstring": "*",
+        "ext-openssl": "*",
+        "ext-session": "*",
+        "ext-tokenizer": "*",
         "williamug/versioning": "dev-main",
         "vlucas/phpdotenv": "5.6.x-dev",
         "symfony/error-handler": "7.3.x-dev",
         "league/flysystem": "3.x-dev",
-        "league/flysystem-local": "3.x-dev"
-        "erusev/parsedown": "^1.0.0"
+        "league/flysystem-local": "3.x-dev",
+        "nesbot/carbon": "^3.x-dev",
+        "erusev/parsedown": "1.7.x-dev"
     },
     "require-dev": {
         "symfony/var-dumper": "7.3.x-dev",
@@ -25,9 +42,10 @@
     },
     "authors": [
         {
-            "name": "Asaba William",
-            "email": "asabawilliamdk@yahoo.com"
+            "name": "William Asaba",
+            "email": "asabawilliam@gmail.com"
         }
     ],
-    "minimum-stability": "dev"
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }
