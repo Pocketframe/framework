@@ -743,41 +743,16 @@ class TableBuilder
     $column = $this->lastColumnName;
 
     if ($this->driver === 'sqlite') {
-      // For SQLite, add UNIQUE directly to column definition
       $this->columns[array_key_last($this->columns)] .= ' UNIQUE';
     } else {
-      // For other databases, use standard unique constraint
+      // Add table name to default index name
       $indexName = $indexName ?: "{$this->table}_{$column}_unique";
-      $this->indexes[] = "CONSTRAINT `{$indexName}` UNIQUE (`{$column}`)";
+      $this->indexes[] = "UNIQUE KEY `{$indexName}` (`{$column}`)";
     }
 
     return $this;
   }
 
-
-  public function index(?string $indexName = null): self
-  {
-    $column = $this->lastColumnName;
-
-    if ($this->isSQLite()) {
-      $indexName = $indexName ?: "{$this->table}_{$column}_idx";
-      $this->postCommands[] = sprintf(
-        'CREATE INDEX %s ON %s (%s);',
-        $this->quoteIdentifier($indexName),
-        $this->quoteIdentifier($this->table),
-        $this->quoteIdentifier($column)
-      );
-    } else {
-      $indexName = $indexName ?: "{$column}_index";
-      $this->indexes[] = sprintf(
-        'INDEX %s (%s)',
-        $this->quoteIdentifier($indexName),
-        $this->quoteIdentifier($column)
-      );
-    }
-
-    return $this;
-  }
 
   public function primary(): self
   {
