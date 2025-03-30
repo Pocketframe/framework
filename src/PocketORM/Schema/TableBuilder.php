@@ -737,10 +737,12 @@ class TableBuilder
     $column = $this->lastColumnName;
 
     if ($this->driver === 'sqlite') {
+      // For SQLite, add UNIQUE directly to column definition
       $this->columns[array_key_last($this->columns)] .= ' UNIQUE';
     } else {
-      $indexName = $indexName ?: "{$column}_unique";
-      $this->indexes[] = "UNIQUE `{$indexName}` (`{$column}`)";
+      // For other databases, use standard unique constraint
+      $indexName = $indexName ?: "{$this->table}_{$column}_unique";
+      $this->indexes[] = "CONSTRAINT `{$indexName}` UNIQUE (`{$column}`)";
     }
 
     return $this;
@@ -793,7 +795,6 @@ class TableBuilder
     }
 
     $onTable = $onTable ?? StringUtils::plural(StringUtils::beforeLast($this->lastFkConstraint, '_id'));
-    $constraintName = "fk_{$this->table}_{$this->lastFkConstraint}";
 
     $fkSql = sprintf(
       "FOREIGN KEY (%s) REFERENCES %s (%s)",
@@ -803,7 +804,8 @@ class TableBuilder
     );
 
     if (!$this->isSQLite()) {
-      $fkSql = "CONSTRAINT {$this->quoteIdentifier($constraintName)} $fkSql";
+      $constraintName = "fk_{$this->table}_{$this->lastFkConstraint}";
+      $fkSql = "CONSTRAINT `{$constraintName}` $fkSql";
     }
 
     $this->foreignKeys[] = $fkSql;
@@ -908,6 +910,14 @@ class TableBuilder
       $this->indexes,
       $this->foreignKeys
     );
+
+    if ($this->isSQLite()) {
+      // SQLite doesn't support CONSTRAINT clauses in CREATE TABLE
+      $definitions = array_filter($definitions, function ($item) {
+        return !str_contains($item, 'CONSTRAINT');
+      });
+    }
+
 
     return sprintf(
       "CREATE TABLE IF NOT EXISTS `%s` (\n  %s\n) %s;",
