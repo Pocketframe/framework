@@ -25,6 +25,12 @@ class TableBuilder
     $this->driver = config('database.driver', 'mysql');
   }
 
+  public function getPostCommands(): array
+  {
+    return $this->postCommands;
+  }
+
+
   /**
    * Get the appropriate identifier quote character
    */
@@ -748,16 +754,26 @@ class TableBuilder
     return $this;
   }
 
+
   public function index(?string $indexName = null): self
   {
     $column = $this->lastColumnName;
 
-    if ($this->driver === 'sqlite') {
+    if ($this->isSQLite()) {
       $indexName = $indexName ?: "{$this->table}_{$column}_idx";
-      $this->postCommands[] = "CREATE INDEX `{$indexName}` ON `{$this->table}` (`{$column}`)";
+      $this->postCommands[] = sprintf(
+        'CREATE INDEX %s ON %s (%s)',
+        $this->quoteIdentifier($indexName),
+        $this->quoteIdentifier($this->table),
+        $this->quoteIdentifier($column)
+      );
     } else {
       $indexName = $indexName ?: "{$column}_index";
-      $this->indexes[] = "INDEX `{$indexName}` (`{$column}`)";
+      $this->indexes[] = sprintf(
+        'INDEX %s (%s)',
+        $this->quoteIdentifier($indexName),
+        $this->quoteIdentifier($column)
+      );
     }
 
     return $this;
@@ -911,17 +927,13 @@ class TableBuilder
       $this->foreignKeys
     );
 
-    if ($this->isSQLite()) {
-      // SQLite doesn't support CONSTRAINT clauses in CREATE TABLE
-      $definitions = array_filter($definitions, function ($item) {
-        return !str_contains($item, 'CONSTRAINT');
-      });
+    if (!$this->isSQLite()) {
+      $definitions = array_merge($definitions, $this->indexes);
     }
 
-
     return sprintf(
-      "CREATE TABLE IF NOT EXISTS `%s` (\n  %s\n) %s;",
-      $this->table,
+      "CREATE TABLE IF NOT EXISTS %s (\n  %s\n) %s;",
+      $this->quoteIdentifier($this->table),
       implode(",\n  ", $definitions),
       $this->compileTableOptions()
     );
