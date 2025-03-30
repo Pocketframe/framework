@@ -7,6 +7,12 @@ use Pocketframe\PocketORM\Database\Connection;
 // same as migration
 abstract class TableScript
 {
+
+  /**
+   * @var array
+   */
+  protected array $postCommands = [];
+
   /**
    * The up method is called when the migration is applied.
    *
@@ -36,6 +42,10 @@ abstract class TableScript
     Connection::getInstance()->exec(
       $tableBuilder->compileCreate()
     );
+
+    foreach ($tableBuilder->getPostCommands() as $command) {
+      Connection::getInstance()->exec($command);
+    }
   }
 
   protected function alterTable(string $table, callable $tableTemplate): void
@@ -51,5 +61,10 @@ abstract class TableScript
   protected function dropTable(string $table): void
   {
     Connection::getInstance()->exec("DROP TABLE IF EXISTS {$table}");
+  }
+
+  public function getPostCommands(): array
+  {
+    return $this->postCommands;
   }
 }
