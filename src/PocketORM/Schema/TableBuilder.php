@@ -762,7 +762,7 @@ class TableBuilder
     if ($this->isSQLite()) {
       $indexName = $indexName ?: "{$this->table}_{$column}_idx";
       $this->postCommands[] = sprintf(
-        'CREATE INDEX %s ON %s (%s)',
+        'CREATE INDEX %s ON %s (%s);',
         $this->quoteIdentifier($indexName),
         $this->quoteIdentifier($this->table),
         $this->quoteIdentifier($column)
