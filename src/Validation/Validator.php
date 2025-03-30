@@ -65,7 +65,7 @@ class Validator
 
       // Skip validation if field is nullable and value is null/empty
       if ($isNullable && ($value === null || $value === '')) {
-        continue; // Skip other validations
+        continue;
       }
 
       // Process sometimes rule first
