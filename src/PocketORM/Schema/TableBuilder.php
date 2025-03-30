@@ -926,10 +926,6 @@ class TableBuilder
       $this->foreignKeys
     );
 
-    if (!$this->isSQLite()) {
-      $definitions = array_merge($definitions, $this->indexes);
-    }
-
     return sprintf(
       "CREATE TABLE IF NOT EXISTS %s (\n  %s\n) %s;",
       $this->quoteIdentifier($this->table),
