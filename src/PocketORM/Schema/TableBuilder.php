@@ -754,6 +754,30 @@ class TableBuilder
   }
 
 
+  public function index(?string $indexName = null): self
+  {
+    $column = $this->lastColumnName;
+
+    if ($this->isSQLite()) {
+      $indexName = $indexName ?: "{$this->table}_{$column}_idx";
+      $this->postCommands[] = sprintf(
+        'CREATE INDEX %s ON %s (%s);',
+        $this->quoteIdentifier($indexName),
+        $this->quoteIdentifier($this->table),
+        $this->quoteIdentifier($column)
+      );
+    } else {
+      $indexName = $indexName ?: "{$column}_index";
+      $this->indexes[] = sprintf(
+        'INDEX %s (%s)',
+        $this->quoteIdentifier($indexName),
+        $this->quoteIdentifier($column)
+      );
+    }
+
+    return $this;
+  }
+
   public function primary(): self
   {
     $column = $this->lastColumnName;
