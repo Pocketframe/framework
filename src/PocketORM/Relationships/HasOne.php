@@ -24,17 +24,18 @@ class HasOne
 
   public function eagerLoad(array $parents): array
   {
-    // Collect foreign key values from each parent
-    $foreignKeys = array_column($parents, $this->foreignKey);
+    $parentIds = [];
+    foreach ($parents as $parent) {
+      $parentIds[] = $parent->id;
+    }
 
-    // Fetch related records whose ID is in the parent's foreignKey array
-    return (new QueryEngine($this->related::getTable(), $this->related::class))
-      ->whereIn('id', array_unique($foreignKeys))
+    // Fetch related records where the child's foreign key is in the parent's ids
+    return (new QueryEngine($this->related))
+      ->whereIn($this->foreignKey, array_unique($parentIds))
       ->keyBy('id')
       ->get()
       ->all();
   }
-
   public function getForeignKey(): string
   {
     return $this->foreignKey;
@@ -47,7 +48,7 @@ class HasOne
 
   public function get(): ?object
   {
-    return (new QueryEngine($this->related::getTable(), $this->related::class))
+    return (new QueryEngine($this->related))
       ->where($this->foreignKey, '=', $this->parent->id)
       ->first();
   }
