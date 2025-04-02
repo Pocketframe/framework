@@ -50,26 +50,26 @@ trait DeepFetch
    */
   private function batchLoad(DataSet $records, array $relations): void
   {
-    if (empty($records->all())) return;
+    $allRecords = $records->all();
+    if (empty($allRecords)) return;
 
     $relation = array_shift($relations);
-    $first = reset($records->all());
+    $first = reset($allRecords);
 
-    if (!isset($first->relationship[$relation])) {
+    $config = $first->getRelationshipConfig($relation);
+    if (!$config) {
       throw new \Exception("Relationship '{$relation}' is not defined in " . get_class($first));
     }
-
-    $config = $first->relationship[$relation];
     [$relationshipClass, $relatedEntity, $foreignKey] = $config;
 
     $relationship = new $relationshipClass($first, $relatedEntity, $foreignKey ?? null);
-    $relatedMap = $relationship->eagerLoad($records->all());
+    $relatedMap = $relationship->eagerLoad($allRecords);
 
-    foreach ($records->all() as $parent) {
-      $key = $parent->{$relationship->foreignKey} ?? $parent->id;
-
+    foreach ($allRecords as $parent) {
+      // Using parent's id for grouping (adjust if needed)
+      $key = $parent->id;
       if ($key !== null) {
-        $parent->eagerLoaded[$relation] = $this->formatLoadedData($relationship, $relatedMap[$key] ?? []);
+        $parent->setEagerLoaded($relation, $this->formatLoadedData($relationship, $relatedMap[$key] ?? []));
       }
     }
 
@@ -79,6 +79,7 @@ trait DeepFetch
       $this->batchLoad($relatedRecords, $relations);
     }
   }
+
 
   /**
    * Format the loaded relationship data based on its type.
