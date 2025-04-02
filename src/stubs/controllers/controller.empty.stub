@@ -2,6 +2,8 @@
 
 namespace {{namespace}};
 
+use Pocketframe\Http\Request\Request;
+use Pocketframe\Http\Response\Response;
 
 class {{controllerName}}
 {
