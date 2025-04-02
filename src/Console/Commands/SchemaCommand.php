@@ -72,11 +72,34 @@ class SchemaCommand implements CommandInterface
           exit(1);
         }
       }
+
+      if ($this->shouldRunPlanters()) {
+        $this->runPlanters();
+      }
     } catch (Throwable $e) {
       $this->handleGenericError($e);
       exit(1);
     }
   }
+
+  protected function shouldRunPlanters(): bool
+  {
+    // Check if --plant flag is present
+    return in_array('--plant', $this->args) || in_array('-p', $this->args);
+  }
+
+
+  protected function runPlanters(): void
+  {
+    echo "\n🌱 Running data planters...\n";
+    try {
+      DatabasePlanter::run();
+      echo "✅ Data planting completed!\n";
+    } catch (\Throwable $e) {
+      echo "❌ Error planting data: " . $e->getMessage() . "\n";
+    }
+  }
+
 
 
   protected function rollbackLastSchema(): void
