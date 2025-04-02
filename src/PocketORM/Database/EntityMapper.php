@@ -24,7 +24,7 @@ class EntityMapper
   /**
    * Persist an entity (insert or update).
    */
-  public static function persist(Entity $entity): void
+  public static function persist(Entity $entity): Entity
   {
     try {
       $table = $entity::getTable();
@@ -42,6 +42,7 @@ class EntityMapper
       }
 
       HookDispatcher::trigger('saved', $entity);
+      return $entity;
     } catch (PersistenceFailureError $e) {
       throw new PersistenceFailureError(
         "Persist failed: " . $e->getMessage(),
@@ -86,11 +87,12 @@ class EntityMapper
   /**
    * Remove an entity from the database.
    */
-  public static function erase(Entity $entity): void
+  public static function erase(Entity $entity): Entity
   {
     (new QueryEngine($entity::getTable()))
       ->where('id', '=', $entity->id)
       ->delete();
+    return $entity;
   }
 
   /**
