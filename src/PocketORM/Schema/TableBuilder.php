@@ -904,6 +904,29 @@ class TableBuilder
     return $this;
   }
 
+  private function formatDefaultValue($value): string
+  {
+    if (is_null($value)) {
+      return 'NULL';
+    }
+    if (is_bool($value)) {
+      return $value ? 'TRUE' : 'FALSE';
+    }
+    if (is_numeric($value)) {
+      return (string) $value;
+    }
+
+    // Handle SQL keywords and functions
+    $upperValue = strtoupper($value);
+    if (in_array($upperValue, ['CURRENT_TIMESTAMP', 'NOW()', 'CURRENT_DATE', 'CURRENT_TIME'])) {
+      return $upperValue;
+    }
+
+    // Escape single quotes and wrap in quotes
+    $escaped = str_replace("'", "''", $value);
+    return "'{$escaped}'";
+  }
+
   private function compileTableOptions(): string
   {
     if ($this->isSQLite()) {
