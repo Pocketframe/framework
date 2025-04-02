@@ -36,7 +36,7 @@ class Bridge
   {
     $parentIds = array_column(array_map(fn($p) => (array)$p, $parents), 'id');
 
-    $pivotData = (new QueryEngine($this->pivotTable, $this->related::class))
+    $pivotData = (new QueryEngine($this->pivotTable, $this->related))
       ->whereIn($this->parentKey, $parentIds)
       ->get()
       ->all();
@@ -45,7 +45,7 @@ class Bridge
       array_column(array_map(fn($p) => (array)$p, $pivotData), $this->relatedKey)
     );
 
-    $relatedRecords = (new QueryEngine($this->related::getTable(), $this->related::class))
+    $relatedRecords = (new QueryEngine($this->related))
       ->whereIn('id', $relatedIds)
       ->keyBy('id')
       ->get();
@@ -74,7 +74,7 @@ class Bridge
       );
     }
 
-    return (new QueryEngine($this->pivotTable, $this->related::class))
+    return (new QueryEngine($this->pivotTable, $this->related))
       ->select([$this->related::getTable() . '.*'])
       ->join(
         $this->related::getTable(),
