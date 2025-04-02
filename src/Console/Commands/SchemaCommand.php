@@ -2,6 +2,7 @@
 
 namespace Pocketframe\Console\Commands;
 
+use Database\Planters\DatabasePlanter;
 use PDO;
 use PDOException;
 use Pocketframe\Contracts\CommandInterface;
