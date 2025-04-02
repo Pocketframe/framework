@@ -73,6 +73,7 @@ class TemplateCompiler
     if ($isFrameworkTemplate) {
       $this->templatePath = __DIR__ . '/../../resources/views/errors/' . Response::NOT_FOUND . '.view.php';
     } else {
+      $templateName = str_replace('.', '/', $templateName);
       $this->templatePath = base_path("resources/views/{$templateName}.view.php");
     }
     $this->compiledPath = base_path("store/framework/views/" . $this->cacheViewName($templateName));
@@ -410,7 +411,7 @@ class TemplateCompiler
   protected function processTemplateInheritance(string $content): string
   {
     if (preg_match('/@layout\(\s*[\'"](.+?)[\'"]\s*\)/', $content, $match)) {
-      $parentTemplate = $match[1];
+      $parentTemplate = str_replace('.', '/', $match[1]);
       $content = str_replace($match[0], '', $content);
 
       preg_match_all('/@block\(\s*[\'"](.+?)[\'"]\s*\)(.*?)@endblock/s', $content, $childBlockMatches);
@@ -480,7 +481,7 @@ class TemplateCompiler
   {
     $expression = trim($expression, '()');
     $parts = explode(',', $expression, 2);
-    $component = trim($parts[0], " '\"");
+    $component = str_replace('.', '/', trim($parts[0], " '\""));
     $props = isset($parts[1]) ? trim($parts[1]) : '[]';
     $unique = '__slot_' . uniqid();
     $compiled = "<?php \$__props = $props; extract(\$__props); \$slot = <<<{$unique}\n" . $content . "\n{$unique};\n";
@@ -503,7 +504,7 @@ class TemplateCompiler
   {
     $expression = trim($expression, '()');
     $parts = explode(',', $expression, 2);
-    $partial = trim($parts[0], " '\"");
+    $partial = str_replace('.', '/', trim($parts[0], " '\""));
     $props = isset($parts[1]) ? trim($parts[1]) : '[]';
     $path = base_path("resources/views/{$partial}.view.php");
     if (!file_exists($path)) {
@@ -553,7 +554,7 @@ class TemplateCompiler
     $compiled = "<?php \$__props = $propsCode; extract(\$__props); \$slot = <<<{$unique}\n" . $slotContent . "\n{$unique};\n";
 
     $componentClass = "App\\View\\Components\\{$component}";
-    $viewBase = strtolower($component);
+    $viewBase = str_replace('.', '/', strtolower($component));
 
     if (class_exists($componentClass)) {
       $compiled .= "\$__component = new $componentClass(\$__props); ";
