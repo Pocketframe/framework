@@ -828,6 +828,14 @@ class TableBuilder
     return $this;
   }
 
+  public function default($value): self
+  {
+    $defaultValue = $this->formatDefaultValue($value);
+    $this->modifyLastColumn(fn($def) => $def . " DEFAULT {$defaultValue}");
+    return $this;
+  }
+
+
 
   public function onUpdate(string $action): self
   {
