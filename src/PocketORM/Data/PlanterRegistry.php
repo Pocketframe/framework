@@ -17,4 +17,18 @@ class PlanterRegistry
       $planter::run();
     }
   }
+
+  public static function discoverAndRegister(): void
+  {
+    $planters = glob(database_path('planters/*.php'));
+
+    foreach ($planters as $planter) {
+      require_once $planter;
+
+      $className = 'Database\\Planters\\' . basename($planter, '.php');
+      if (class_exists($className)) {
+        self::register($className);
+      }
+    }
+  }
 }
