@@ -30,16 +30,23 @@ abstract class Entity
 
   /**
    * If not set, defaults to snake-cased class name + 's'
+   * (e.g., Category -> categories)
    */
   protected static string $table;
 
   /**
    * Attributes for this entity (database columns).
+   *
+   * @var array
    */
   public array $attributes = [];
 
   /**
-   * Relationship definitions. Example:
+   * Relationship definitions.
+   *
+   * @var array
+   *
+   * Example:
    * protected array $relationship = [
    *   'profile' => [Entity::HAS_ONE, Profile::class, 'user_id'],
    *   'posts'   => [Entity::HAS_MULTIPLE, Post::class, 'author_id'],
@@ -51,16 +58,22 @@ abstract class Entity
 
   /**
    * Mass assignable attributes.
+   *
+   * @var array
    */
   protected array $fillable = [];
 
   /**
    * Attributes that cannot be mass assigned.
+   *
+   * @var array
    */
   protected array $guarded = ['id'];
 
   /**
    * Cache of loaded relationships.
+   *
+   * @var array
    */
   protected array $eagerLoaded = [];
 
@@ -72,6 +85,10 @@ abstract class Entity
 
   /**
    * Initialize the entity and mass assign attributes.
+   *
+   * @param array $attributes
+   *
+   * @return void
    */
   public function __construct(array $attributes = [])
   {
@@ -80,6 +97,10 @@ abstract class Entity
 
   /**
    * Magic getter to retrieve attributes or relationships.
+   *
+   * @param string $name
+   *
+   * @return mixed
    */
   public function __get(string $name)
   {
@@ -103,6 +124,12 @@ abstract class Entity
 
   /**
    * Magic setter, respecting guarded attributes.
+   *
+   * @param string $name
+   *
+   * @param mixed $value
+   *
+   * @return void
    */
   public function __set(string $name, $value)
   {
@@ -113,7 +140,76 @@ abstract class Entity
   }
 
   /**
+   * Returns debug information about the entity.
+   *
+   * @return array
+   */
+  public function __debugInfo(): array
+  {
+    return [
+      'attributes' => $this->attributes,
+      'eagerLoaded' => $this->eagerLoaded,
+      'relationships' => array_keys($this->relationship)
+    ];
+  }
+
+  /**
+   * Returns the eager loaded data for a specific relationship.
+   *
+   * @param string $relation The name of the relationship.
+   *
+   * @return mixed The eager loaded data for the relationship.
+   */
+  public function getEagerLoaded(): array
+  {
+    return $this->eagerLoaded;
+  }
+
+  /**
+   * Initialize relationships.
+   *
+   * This method is called when the entity is first loaded from the database.
+   *
+   * @return void
+   */
+  public function initializeRelationships(): void
+  {
+    foreach (array_keys($this->relationship) as $relation) {
+      $this->$relation;
+    }
+  }
+
+  /**
+   * Get the relationship configuration for a given relationship.
+   *
+   * @param string $relation The name of the relationship.
+   * @return array|null The relationship configuration, or null if the relationship is not defined.
+   */
+  public function getRelationshipConfig(string $relation): ?array
+  {
+    return $this->relationship[$relation] ?? null;
+  }
+
+  /**
+   * Set eager loaded data for a specific relationship.
+   *
+   * This method is used to set the eager loaded data for a relationship.
+   *
+   * @param string $relation The name of the relationship.
+   * @param mixed $data The data to set.
+   * @return void
+   */
+  public function setEagerLoaded(string $relation, $data): void
+  {
+    $this->eagerLoaded[$relation] = $data;
+  }
+
+  /**
    * Mass assign attributes, throwing error for unfillable keys.
+   *
+   * @param array $attributes
+   *
+   * @return self
    */
   public function fill(array $attributes): self
   {
@@ -128,6 +224,8 @@ abstract class Entity
 
   /**
    * Return only fillable attributes (for inserts/updates).
+   *
+   * @return array
    */
   public function getFillableAttributes(): array
   {
@@ -140,6 +238,8 @@ abstract class Entity
 
   /**
    * Return the associated table name, defaulting to "classname + s" if not set.
+   *
+   * @return string
    */
   public static function getTable(): string
   {
@@ -148,6 +248,10 @@ abstract class Entity
 
   /**
    * For date attributes, convert to Carbon instance.
+   *
+   * @param string $key
+   *
+   * @return ?Carbon
    */
   protected function getDateValue(string $key): ?Carbon
   {
@@ -159,6 +263,10 @@ abstract class Entity
 
   /**
    * Load a relationship if not already cached in eagerLoaded.
+   *
+   * @param string $relation
+   *
+   * @return mixed
    */
   protected function loadRelationship(string $relation)
   {
@@ -184,6 +292,8 @@ abstract class Entity
 
   /**
    * Default guess for foreign key: "classname_id".
+   *
+   * @return string
    */
   protected function guessForeignKey(): string
   {
@@ -192,24 +302,30 @@ abstract class Entity
 
   /**
    * Save the entity (insert or update) via EntityMapper.
+   *
+   * @return self
    */
-  public function save(): void
+  public function save(): self
   {
     // Update timestamps if needed (HasTimeStamps trait)
     $this->updateTimeStamps();
-    EntityMapper::persist($this);
+    return EntityMapper::persist($this);
   }
 
   /**
    * Delete the entity from the DB via EntityMapper.
+   *
+   * @return self
    */
-  public function delete(): void
+  public function delete(): self
   {
-    EntityMapper::erase($this);
+    return EntityMapper::erase($this);
   }
 
   /**
    * Check if the entity has a primary key set (exists in DB).
+   *
+   * @return bool
    */
   public function exists(): bool
   {
@@ -218,6 +334,8 @@ abstract class Entity
 
   /**
    * Convert entity and any loaded relationships to array form.
+   *
+   * @return array
    */
   public function toArray(): array
   {
