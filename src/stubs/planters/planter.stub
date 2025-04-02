@@ -1,9 +1,16 @@
 <?php
 
+namespace Database\Planters;
+
 use Pocketframe\PocketORM\Data\DataPlanter;
 
 class {{dataPlanterName}} extends DataPlanter {
     public function plant(): void {
-        // Seeding logic
+       // Add your data planting logic here
+        // Example:
+        // $this->insertBatch('users', [
+        //     ['name' => 'Admin', 'email' => 'admin@example.com'],
+        //     ['name' => 'User', 'email' => 'user@example.com'],
+        // ]);
     }
 }
