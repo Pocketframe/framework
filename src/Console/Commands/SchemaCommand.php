@@ -41,12 +41,12 @@ class SchemaCommand implements CommandInterface
   {
     try {
       // Always apply system schema first
-      $systemSchema = database_path('schemas/0000_00_00_000000_pocket_schemas_table.php');
-      require_once $systemSchema;
-      $className = $this->getClassNameFromPath($systemSchema);
-      (new $className())->up();
-      $this->repository->recordSchema(basename($systemSchema));
-      echo "💪 System schema initialized\n";
+      // $systemSchema = database_path('schemas/0000_00_00_000000_pocket_schemas_table.php');
+      // require_once $systemSchema;
+      // $className = $this->getClassNameFromPath($systemSchema);
+      // (new $className())->up();
+      // $this->repository->recordSchema(basename($systemSchema));
+      // echo "💪 System schema initialized\n";
 
       // Get remaining schemas
       $pendingSchemas = $force
@@ -55,7 +55,7 @@ class SchemaCommand implements CommandInterface
 
       foreach ($pendingSchemas as $schemaPath) {
         // Skip already processed system schema
-        if (str_contains($schemaPath, '0000_00_00_000000')) continue;
+        // if (str_contains($schemaPath, '0000_00_00_000000')) continue;
 
         try {
           require_once $schemaPath;
