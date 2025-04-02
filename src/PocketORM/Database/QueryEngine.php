@@ -4,11 +4,15 @@ namespace Pocketframe\PocketORM\Database;
 
 use PDO;
 use PDOException;
+use Pocketframe\PocketORM\Concerns\DeepFetch;
+use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\DataSet;
 
 class QueryEngine
 {
-  protected string $table;
+  use DeepFetch;
+
+  protected string $table = '';
   protected array $select = ['*'];
   protected array $wheres = [];
   protected array $joins = [];
@@ -22,12 +26,17 @@ class QueryEngine
   protected bool $isDelete = false;
   protected array $rawSelects = [];
   protected ?string $keyByColumn = null;
+  private ?string $entityClass;
 
-  public function __construct(string $table)
+  public function __construct($entity)
   {
-    $this->table = $table;
+    if (is_string($entity) && class_exists($entity) && is_subclass_of($entity, Entity::class)) {
+      $this->entityClass = $entity;
+      $this->table = $entity::getTable();
+    } else {
+      throw new \InvalidArgumentException("Invalid entity class provided.");
+    }
   }
-
   // SELECT METHODS
 
   public function select(array $columns): self
@@ -92,6 +101,10 @@ class QueryEngine
 
   public function whereIn(string $column, array $values, string $boolean = 'AND', bool $not = false): self
   {
+    if (empty($values)) {
+      return $this;
+    }
+
     $this->wheres[] = [
       'type' => 'in',
       'column' => $column,
@@ -102,6 +115,7 @@ class QueryEngine
     $this->bindings = array_merge($this->bindings, $values);
     return $this;
   }
+
 
   public function orWhereIn(string $column, array $values): self
   {
@@ -198,7 +212,14 @@ class QueryEngine
   public function get(): DataSet
   {
     $sql = $this->compileSelect();
-    return $this->executeQuery($sql);
+    $records = $this->executeQuery($sql);
+
+    // Perform eager loading using DeepFetch’s methods.
+    foreach ($this->includes as $relation) {
+      $this->loadRelation($records, $relation);
+    }
+
+    return $records;
   }
 
   public function first(): ?object
@@ -289,20 +310,20 @@ class QueryEngine
   protected function executeQuery(string $sql): DataSet
   {
     $stmt = $this->executeStatement($sql, $this->bindings);
-    $data = $stmt->fetchAll(PDO::FETCH_OBJ);
+    $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Key results by specified column if requested
-    if ($this->keyByColumn !== null) {
-      $keyedData = [];
-      foreach ($data as $row) {
-        $keyValue = $row[$this->keyByColumn] ?? null;
-        if ($keyValue !== null) {
-          $keyedData[$keyValue] = $row;
-        }
+    // Hydrate entities if a model class is specified
+    if ($this->entityClass && class_exists($this->entityClass)) {
+      $hydrated = [];
+      foreach ($data as $record) {
+        $entity = new $this->entityClass;
+        $entity->fill($record);
+        $hydrated[] = $entity;
       }
-      $data = $keyedData;
+      $data = $hydrated;
     }
 
+    // Rest of your existing code...
     return new DataSet($data);
   }
 

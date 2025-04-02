@@ -41,6 +41,10 @@ class Kernel
         'class' => \Pocketframe\Console\Commands\CreateDataPlanterCommand::class,
         'desc' => 'Create a new data planter'
       ],
+      'plant' => [
+        'class' => \Pocketframe\Console\Commands\PlantCommand::class,
+        'desc'  => 'Plant the database with data planters (use --class=PlanterClass for specific planter)'
+      ],
       'blueprint:create' => [
         'class' => \Pocketframe\Console\Commands\CreateBlueprintCommand::class,
         'desc' => 'Create a new Entity blueprint'

@@ -2,6 +2,7 @@
 
 namespace Pocketframe\Console\Commands;
 
+use Database\Planters\DatabasePlanter;
 use PDO;
 use PDOException;
 use Pocketframe\Contracts\CommandInterface;
@@ -40,12 +41,12 @@ class SchemaCommand implements CommandInterface
   {
     try {
       // Always apply system schema first
-      $systemSchema = database_path('schemas/0000_00_00_000000_pocket_schemas_table.php');
-      require_once $systemSchema;
-      $className = $this->getClassNameFromPath($systemSchema);
-      (new $className())->up();
-      $this->repository->recordSchema(basename($systemSchema));
-      echo "💪 System schema initialized\n";
+      // $systemSchema = database_path('schemas/0000_00_00_000000_pocket_schemas_table.php');
+      // require_once $systemSchema;
+      // $className = $this->getClassNameFromPath($systemSchema);
+      // (new $className())->up();
+      // $this->repository->recordSchema(basename($systemSchema));
+      // echo "💪 System schema initialized\n";
 
       // Get remaining schemas
       $pendingSchemas = $force
@@ -54,7 +55,7 @@ class SchemaCommand implements CommandInterface
 
       foreach ($pendingSchemas as $schemaPath) {
         // Skip already processed system schema
-        if (str_contains($schemaPath, '0000_00_00_000000')) continue;
+        // if (str_contains($schemaPath, '0000_00_00_000000')) continue;
 
         try {
           require_once $schemaPath;
@@ -71,11 +72,34 @@ class SchemaCommand implements CommandInterface
           exit(1);
         }
       }
+
+      if ($this->shouldRunPlanters()) {
+        $this->runPlanters();
+      }
     } catch (Throwable $e) {
       $this->handleGenericError($e);
       exit(1);
     }
   }
+
+  protected function shouldRunPlanters(): bool
+  {
+    // Check if --plant flag is present
+    return in_array('--plant', $this->args) || in_array('-p', $this->args);
+  }
+
+
+  protected function runPlanters(): void
+  {
+    echo "\n🌱 Running data planters...\n";
+    try {
+      DatabasePlanter::run();
+      echo "✅ Data planting completed!\n";
+    } catch (\Throwable $e) {
+      echo "❌ Error planting data: " . $e->getMessage() . "\n";
+    }
+  }
+
 
 
   protected function rollbackLastSchema(): void

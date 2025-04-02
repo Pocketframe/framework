@@ -24,14 +24,22 @@ class HasMultiple
 
   public function eagerLoad(array $parents): array
   {
-    $parentIds = array_column(array_map(fn($p) => (array)$p, $parents), 'id');
+    $parentIds = array_column($parents, 'id');
 
-    $relatedRecords = (new QueryEngine($this->related::getTable(), $this->related::class))
+
+    // Get all related records as proper entities
+    $relatedRecords = (new QueryEngine($this->related))
       ->whereIn($this->foreignKey, $parentIds)
-      ->groupBy($this->foreignKey)
-      ->get();
+      ->get()
+      ->all();
 
-    return $relatedRecords->all();
+    $grouped = [];
+    foreach ($relatedRecords as $record) {
+      $foreignKeyValue = $record->{$this->foreignKey};
+      $grouped[$foreignKeyValue][] = $record;
+    }
+
+    return $grouped;
   }
 
   public function getForeignKey(): string
@@ -46,7 +54,7 @@ class HasMultiple
 
   public function get(): DataSet
   {
-    return (new QueryEngine($this->related::getTable(), $this->related::class))
+    return (new QueryEngine($this->related))
       ->where($this->foreignKey, '=', $this->parent->id)
       ->get();
   }

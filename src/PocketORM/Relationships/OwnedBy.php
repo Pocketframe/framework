@@ -29,7 +29,7 @@ class OwnedBy
       array_column(array_map(fn($p) => (array)$p, $parents), $this->foreignKey)
     );
 
-    return (new QueryEngine($this->related::getTable(), $this->related::class))
+    return (new QueryEngine($this->related))
       ->whereIn('id', $foreignKeys)
       ->keyBy('id')
       ->get()
@@ -49,7 +49,7 @@ class OwnedBy
   public function resolve(): ?object
   {
     // Return the single related record
-    return (new QueryEngine($this->related::getTable(), $this->related::class))
+    return (new QueryEngine($this->related))
       ->where('id', '=', $this->parent->{$this->foreignKey})
       ->first();
   }
