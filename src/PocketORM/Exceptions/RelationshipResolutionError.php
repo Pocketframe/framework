@@ -4,12 +4,12 @@ namespace Pocketframe\PocketORM\Exceptions;
 
 final class RelationshipResolutionError extends ModelException
 {
-  public function __construct(string $modelClass, string $relation)
+  public function __construct(string $entityClass, string $relation)
   {
     parent::__construct(
-      "Failed to resolve relationship '{$relation}' on {$modelClass}",
+      "Failed to resolve relationship '{$relation}' on {$entityClass}",
       self::RELATIONSHIP_ERROR,
-      $modelClass,
+      $entityClass,
       ['relationship' => $relation]
     );
   }
