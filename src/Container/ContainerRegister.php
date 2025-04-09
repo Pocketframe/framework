@@ -5,7 +5,6 @@ namespace Pocketframe\Container;
 use Pocketframe\Container\Container;
 use Pocketframe\Exceptions\Handler;
 use Pocketframe\Database\Database;
-use Pocketframe\Exceptions\DatabaseException;
 use Pocketframe\Logger\Logger;
 
 class ContainerRegister
