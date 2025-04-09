@@ -85,7 +85,7 @@ class Validator
     }
 
     $this->finalizeErrors();
-    $_SESSION['old'] = $data;
+    $_SESSION['_old'] = $data;
 
     return $this;
   }
