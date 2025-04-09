@@ -5,6 +5,7 @@ namespace Pocketframe\Sessions;
 class Session
 {
   protected array $data;
+  protected const POCKET_KEY = '_pocket';
 
   public function __construct(array $data = [])
   {
@@ -16,6 +17,14 @@ class Session
     if (session_status() === PHP_SESSION_NONE) {
       session_start();
     }
+
+    if (!isset($_SESSION[self::POCKET_KEY])) {
+      $_SESSION[self::POCKET_KEY] = [
+        'flash' => [],
+        '_old'   => [],
+        'token' => null,
+      ];
+    }
   }
 
   public function all(): array
@@ -23,72 +32,106 @@ class Session
     return $this->data;
   }
 
-  public function has(string $key): bool
+  public static function has(string $key): bool
   {
     self::start();
     return isset($_SESSION[$key]);
   }
 
-  public static function put($key, $value)
+
+  public static function put(string $key, mixed $value): void
   {
     self::start();
     $_SESSION[$key] = $value;
   }
 
-  public static function get($key, $default = null)
+  public static function get(string $key, mixed $default = null): mixed
   {
     self::start();
+
+    if (str_contains($key, '.')) {
+      [$main, $sub] = explode('.', $key, 2);
+      return $_SESSION[$main][$sub] ?? $default;
+    }
+
     return $_SESSION[$key] ?? $default;
   }
 
-  public static function flash($key, $value): void
+  // ---------- Flash Messages ----------
+
+  public static function flash(string $key, mixed $value): void
   {
     self::start();
-    $_SESSION['_flash'][$key] = $value;
+    $_SESSION[self::POCKET_KEY]['flash'][$key] = $value;
   }
 
-  public static function hasFlash($key)
+  public static function hasFlash(string $key): bool
   {
     self::start();
-    return isset($_SESSION['_flash'][$key]);
+    return isset($_SESSION[self::POCKET_KEY]['flash'][$key]);
   }
 
-  public static function getFlash($key, $default = null)
+  public static function getFlash(string $key, mixed $default = null): mixed
   {
     self::start();
-    $value = $_SESSION['_flash'][$key] ?? $default;
-    unset($_SESSION['_flash'][$key]);
+    $value = $_SESSION[self::POCKET_KEY]['flash'][$key] ?? $default;
+    unset($_SESSION[self::POCKET_KEY]['flash'][$key]);
     return $value;
   }
 
-  public static function old($key, $default = null)
+  public static function flashAll(array $data): void
   {
     self::start();
-    $value = $_SESSION['_old'][$key] ?? $default;
-    unset($_SESSION['_old'][$key]);
+    foreach ($data as $key => $value) {
+      self::flash($key, $value);
+    }
+  }
+
+  public static function flashOld(array $data): void
+  {
+    self::withOld($data);
+  }
+
+  // ---------- Old Input ----------
+  public static function withOld(array $data): void
+  {
+    self::start();
+    $_SESSION[self::POCKET_KEY]['_old'] = $data;
+  }
+
+  public static function old(string $key, mixed $default = null): mixed
+  {
+    self::start();
+    $value = $_SESSION[self::POCKET_KEY]['_old'][$key] ?? $default;
+    unset($_SESSION[self::POCKET_KEY]['_old'][$key]);
     return $value;
   }
+
 
   /**
    * Remove specific keys from the session.
    *
    * @param string|array $keys The key(s) to remove.
    */
-  public static function remove($keys): void
+  public static function remove(string|array $keys): void
   {
     self::start();
-    if (is_string($keys)) {
-      $keys = [$keys];
-    }
-    foreach ($keys as $key) {
+    foreach ((array) $keys as $key) {
       unset($_SESSION[$key]);
     }
   }
 
+
   public static function flush(): void
   {
     self::start();
-    $_SESSION = [];
+    $_SESSION = [
+      self::POCKET_KEY => [
+        'flash' => [],
+        '_old'   => [],
+        'token' => null,
+      ]
+    ];
   }
 
 
@@ -96,6 +139,12 @@ class Session
   {
     self::start();
     unset($_SESSION['_flash']);
+  }
+
+  public static function sweep(): void
+  {
+    self::start();
+    unset($_SESSION['_flash'], $_SESSION['_old']);
   }
 
   public static function destroy()
