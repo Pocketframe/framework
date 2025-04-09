@@ -71,7 +71,8 @@ class TemplateCompiler
   public function __construct(string $templateName, bool $isFrameworkTemplate = false)
   {
     if ($isFrameworkTemplate) {
-      $this->templatePath = __DIR__ . '/../../resources/views/errors/' . Response::NOT_FOUND . '.view.php';
+      $templateName = str_replace('.', '/', $templateName);
+      $this->templatePath = __DIR__ . '/../../resources/views/' . $templateName . '.view.php';
     } else {
       $templateName = str_replace('.', '/', $templateName);
       $this->templatePath = base_path("resources/views/{$templateName}.view.php");
@@ -211,11 +212,33 @@ class TemplateCompiler
       'cache'        => "<?php if(!\$__template->startCache($args)): ?>",
       'endcache'     => "<?php endif; \$__template->endCache(); ?>",
       'lazy'         => "<?php echo \$__template->lazyLoad($args); ?>",
-      'php'          => '<?php ',
-      'endphp'       => ' ?>',
+      'php'          => "<?php ",
+      'endphp'       => " ?>",
       'dd'           => "<?php dd($args); ?>",
+      'checked'      => "<?php echo ({$args}) ? 'checked' : ''; ?>",
+      'selected'     => "<?php echo ({$args}) ? 'selected' : ''; ?>",
+      'disabled'     => "<?php echo ({$args}) ? 'disabled' : ''; ?>",
+      'required'     => "<?php echo ({$args}) ? 'required' : ''; ?>",
+      'continue'     => $this->compileFlowControl('continue', $args),
+      'break'        => $this->compileFlowControl('break', $args),
       default        => "@$directive" . ($args !== '' ? "($args)" : '')
     };
+  }
+
+
+  /**
+   * Compiles flow control statements (e.g., continue, break).
+   *
+   * @param string $type The type of flow control ("continue" or "break").
+   * @param string $args The condition for the flow control.
+   * @return string The compiled PHP code.
+   */
+  protected function compileFlowControl(string $type, string $args): string
+  {
+    if (empty(trim($args))) {
+      return "<?php {$type}; ?>";
+    }
+    return "<?php if ({$args}) { {$type}; } ?>";
   }
 
 
