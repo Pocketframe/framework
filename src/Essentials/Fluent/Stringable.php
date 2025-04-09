@@ -14,9 +14,9 @@ class Stringable
   }
 
   // Fluent methods (chainable)
-  public function slug(string $separator = '-'): self
+  public function slugify(string $separator = '-'): self
   {
-    $this->value = StringUtils::slug($this->value, $separator);
+    $this->value = StringUtils::slugify($this->value, $separator);
     return $this;
   }
 
