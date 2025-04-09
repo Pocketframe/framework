@@ -153,6 +153,8 @@ class StringUtils
    * @param int $limit
    * @param string $end
    * @return string
+   *
+   * @example StringUtils::truncate('Hello, world!', 5) -> 'Hello...'
    */
   public static function truncate(string $value, int $limit, string $end = '...'): string
   {
@@ -168,7 +170,7 @@ class StringUtils
    * @param string $search
    * @return string
    *
-   * @example StringUtils::after('App\Controllers', '\\') → 'Controllers'
+   * @example StringUtils::after('App\Controllers', '\\') -> 'Controllers'
    */
   public static function after(string $subject, string $search): string
   {
@@ -181,6 +183,8 @@ class StringUtils
    * @param string $subject
    * @param string $search
    * @return string
+   *
+   * @example StringUtils::afterLast('App\Controllers', '\\') -> 'Controllers'
    */
   public static function afterLast(string $subject, string $search): string
   {
@@ -193,6 +197,8 @@ class StringUtils
    * @param string $subject
    * @param string $search
    * @return string
+   *
+   * @example StringUtils::before('App\Controllers', '\\') -> 'App'
    */
   public static function before(string $subject, string $search): string
   {
@@ -206,6 +212,8 @@ class StringUtils
    * @param string $subject
    * @param string $search
    * @return string
+   *
+   * @example StringUtils::beforeLast('App\Controllers', '\\') -> 'App'
    */
   public static function beforeLast(string $subject, string $search): string
   {
@@ -229,6 +237,8 @@ class StringUtils
    *
    * @param string $value
    * @return string
+   *
+   * @example StringUtils::camelCase('hello_world') -> 'helloWorld'
    */
   public static function camelCase(string $value): string
   {
@@ -241,6 +251,8 @@ class StringUtils
    *
    * @param string $string
    * @return string
+   *
+   * @example StringUtils::singular('categories') -> 'category'
    */
   public static function singular(string $string): string
   {
@@ -272,6 +284,8 @@ class StringUtils
    * @param string $haystack
    * @param string|array $needles
    * @return bool
+   *
+   * @example StringUtils::contains('Hello, world!', 'world') -> true
    */
   public static function contains(string $haystack, $needles): bool
   {
@@ -289,17 +303,25 @@ class StringUtils
    * @param string $value
    * @param string $character
    * @return string
+   *
+   * @example StringUtils::deduplicate('Hello, world!') -> 'Hello, world!'
    */
   public static function deduplicate(string $value, string $character = ' '): string
   {
     return preg_replace('/' . preg_quote($character, '/') . '{2,}/', $character, $value);
   }
+
   /**
    * Convert string to ASCII format.
+   *
+   * Transliteration is used to convert characters to their closest ASCII equivalent.
+   * Non-ASCII characters are removed.
    *
    * @param string $string
    * @param string $language
    * @return string
+   *
+   * @example StringUtils::toAscii('Hello, world!') -> 'Hello world'
    */
   public static function toAscii(string $string, string $language = 'en'): string
   {
@@ -315,8 +337,10 @@ class StringUtils
    * @param string $separator
    * @param string $language
    * @return string
+   *
+   * @example StringUtils::slugify('Hello, world!') -> 'hello-world'
    */
-  public static function slug(string $title, string $separator = '-', string $language = 'en'): string
+  public static function slugify(string $title, string $separator = '-', string $language = 'en'): string
   {
     // Convert to ASCII
     $title = static::toAscii($title, $language);
@@ -334,6 +358,8 @@ class StringUtils
    * @param string $value
    * @param string $delimiter
    * @return string
+   *
+   * @example StringUtils::snakeCase('Hello, world!') -> 'hello_world'
    */
   public static function snakeCase(string $value, string $delimiter = '_'): string
   {
@@ -349,6 +375,8 @@ class StringUtils
    *
    * @param string $value
    * @return string
+   *
+   * @example StringUtils::trim('  Hello, world!  ') -> 'Hello, world!'
    */
   public static function trim(string $value): string
   {
@@ -360,6 +388,8 @@ class StringUtils
    *
    * @param string $value
    * @return string
+   *
+   * @example StringUtils::pascalCase('hello_world') -> 'HelloWorld'
    */
   public static function pascalCase(string $value): string
   {
@@ -374,6 +404,8 @@ class StringUtils
    * @param int $words
    * @param string $end
    * @return string
+   *
+   * @example StringUtils::limitWords('Hello, world!', 1) -> 'Hello...'
    */
   public static function limitWords(string $value, int $words = 100, string $end = '...'): string
   {
@@ -387,11 +419,19 @@ class StringUtils
   /**
    * Mask part of a string with a repeated character.
    *
+   * Mask part of a string with a repeated character, usually used to hide sensitive
+   * information like passwords or credit card numbers. The mask will be applied
+   * from the start of the string up to the $visibleStart index and from the
+   * $visibleEnd index to the end of the string. The characters in the middle
+   * will be replaced with the $maskCharacter.
+   *
    * @param string $value
    * @param string $maskCharacter
    * @param int $visibleStart
    * @param int $visibleEnd
    * @return string
+   *
+   * @example StringUtils::mask('1234567890', '*', 3, 3) -> '123*****7890'
    */
   public static function mask(
     string $value,
@@ -412,9 +452,14 @@ class StringUtils
   /**
    * Convert Markdown to HTML.
    *
+   * Convert Markdown text to HTML. If $inline is true, the text will be parsed
+   * as inline Markdown (no wrappers).
+   *
    * @param string $text
    * @param bool $inline  If true, parse as inline Markdown (no wrappers).
    * @return string
+   *
+   * @example StringUtils::markdown('# Hello, world!') -> '<h1>Hello, world!</h1>'
    */
   public static function markdown(string $text, bool $inline = false): string
   {
@@ -424,8 +469,12 @@ class StringUtils
   /**
    * Reverse a string.
    *
+   * Reverse the order of characters in a string.
+   *
    * @param string $value
    * @return string
+   *
+   * @example StringUtils::reverse('Hello, world!') -> '!dlrow ,olleH'
    */
   public static function reverse(string $value): string
   {
@@ -437,6 +486,8 @@ class StringUtils
    *
    * @param int $length
    * @return string
+   *
+   * @example StringUtils::random(10) -> '5e89f2a1b3'
    */
   public static function random(int $length = 16): string
   {
@@ -446,7 +497,11 @@ class StringUtils
   /**
    * Generate a UUID.
    *
+   * Generate a version 4 UUID (randomly generated).
+   *
    * @return string
+   *
+   * @example StringUtils::uuid() -> '123e4567-e89b-12d3-a456-426655440000'
    */
   public static function uuid(): string
   {
@@ -466,8 +521,21 @@ class StringUtils
   /**
    * Create a Stringable instance.
    *
+   * This method creates a new instance of the Stringable class from a given string.
+   * The Stringable class is a simple wrapper around a string that provides an
+   * interface with all the methods of the StringUtils class. This allows you to
+   * chain methods together and make your code a bit more readable. The Stringable
+   * class is also immutable, meaning that once you create an instance, you can't
+   * change it anymore. This can be useful when you want to make sure that a string
+   * is not modified by accident. For example, you can use it to create a slug from
+   * a title before storing it in a database:
+   *
+   * $slug = StringUtils::create($title)->slugify()->lowercase();
+   *
    * @param string $value
    * @return Stringable
+   *
+   * @example StringUtils::create('Hello, world!')->reverse() -> '!dlrow ,olleH'
    */
   public static function create(string $value): Stringable
   {
