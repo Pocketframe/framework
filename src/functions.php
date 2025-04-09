@@ -140,7 +140,7 @@ if (!function_exists('authorize')) {
 if (!function_exists('redirect')) {
   function redirect(string $path)
   {
-    unset($_SESSION['old']);
+    unset($_SESSION['_old']);
 
     $path = '/' . ltrim($path, '/');
     $path = str_replace(["\r", "\n"], '', $path);
@@ -153,8 +153,58 @@ if (!function_exists('redirect')) {
   }
 }
 
+/**
+ * Display errors for a specific field
+ *
+ * This function displays errors for a specific field from the session.
+ *
+ * @param string $field The field name to display errors for
+ * @return void Outputs error messages
+ */
 if (!function_exists('display_errors')) {
   function display_errors(string $field): void
+  {
+    if (!empty($_SESSION['errors'][$field])) {
+      foreach ($_SESSION['errors'][$field] as $err) {
+        echo '<div class="error" style="color: red; margin-top: 2px;">' . htmlspecialchars($err) . '</div>';
+      }
+      // Clear errors for that field
+      unset($_SESSION['errors'][$field]);
+    }
+  }
+}
+
+/**
+ * Display errors for a specific field
+ *
+ * This function displays errors for a specific field from the session.
+ *
+ * @param string $field The field name to display errors for
+ * @return void Outputs error messages
+ */
+if (!function_exists('error_message')) {
+  function error_message(string $field): void
+  {
+    if (!empty($_SESSION['errors'][$field])) {
+      foreach ($_SESSION['errors'][$field] as $err) {
+        echo '<div class="error" style="color: red; margin-top: 2px;">' . htmlspecialchars($err) . '</div>';
+      }
+      // Clear errors for that field
+      unset($_SESSION['errors'][$field]);
+    }
+  }
+}
+
+/**
+ * Display errors for a specific field
+ *
+ * This function displays errors for a specific field from the session.
+ *
+ * @param string $field The field name to display errors for
+ * @return void Outputs error messages
+ */
+if (!function_exists('error')) {
+  function error(string $field): void
   {
     if (!empty($_SESSION['errors'][$field])) {
       foreach ($_SESSION['errors'][$field] as $err) {
@@ -176,19 +226,7 @@ if (!function_exists('display_errors')) {
  * @return mixed The old input value or default
  */
 if (!function_exists('old')) {
-  function old(string $key, $default = null)
-  {
-    static $cleared = false;
-
-    $value = $_SESSION['old'][$key] ?? $default;
-
-    if (!$cleared) {
-      unset($_SESSION['old']);
-      $cleared = true;
-    }
-
-    return $value;
-  }
+  function old(string $key, $default = null) {}
 }
 
 
@@ -554,34 +592,30 @@ if (!function_exists('route')) {
 }
 
 
-/**
- * Get flash message helper instance
- *
- * This function returns an anonymous class instance that provides methods for
- * setting flash messages in the session. Flash messages are temporary messages
- * that persist for only one request cycle and are commonly used to display
- * success/error notifications to users after form submissions or other actions.
- *
- * Example usage:
- * flash()->success('Operation completed successfully');
- * flash()->error('An error occurred');
- *
- * @return object Anonymous class with success() and error() methods for setting flash messages
- */
 if (!function_exists('flash')) {
-  function flash()
+  function flash(string $key = null, string $value = null)
   {
-    return new class {
-      public function success($message)
-      {
-        Session::flash('success', $message);
+    // If both a key and value are provided, set the flash data.
+    if ($key !== '' && $value !== null) {
+      if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
       }
+      $_SESSION['flash'][$key] = $value;
+      return;
+    }
 
-      public function error($message)
-      {
-        Session::flash('error', $message);
+    // If only a key is provided, get and remove the value.
+    if ($key !== '') {
+      if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
       }
-    };
+      $val = $_SESSION['flash'][$key] ?? null;
+      unset($_SESSION['flash'][$key]);
+      return $val;
+    }
+
+    // If no key is provided, return all flash data.
+    return $_SESSION['flash'] ?? [];
   }
 }
 
@@ -604,6 +638,9 @@ if (!function_exists('session')) {
 
 /**
  * Display flash messages for success and error.
+ *
+ * This function displays flash messages for success and error messages. It checks
+ * the session for any success or error messages and generates HTML to display them.
  *
  * @param string $framework The CSS framework to use (e.g., 'tailwind', 'bootstrap').
  * @return string The HTML for the flash messages.
@@ -647,11 +684,17 @@ if (!function_exists('flash_message')) {
   }
 }
 
-
-if (!function_exists('iterator')) {
-  function iterator()
+/**
+ * Get the QueryEngine instance for a given entity
+ *
+ * This function returns a new instance of the QueryEngine class for the specified entity.
+ *
+ * @param string $entity The entity class name
+ * @return \Pocketframe\PocketORM\Database\QueryEngine The QueryEngine instance for the entity
+ */
+if (!function_exists('fromEntity')) {
+  function fromEntity($entity): \Pocketframe\PocketORM\Database\QueryEngine
   {
-    static $count = 0;
-    return ++$count;
+    return new \Pocketframe\PocketORM\Database\QueryEngine($entity);
   }
 }
