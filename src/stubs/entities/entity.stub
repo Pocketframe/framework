@@ -5,6 +5,21 @@ namespace {{namespace}};
 use Pocketframe\PocketORM\Entity\Entity;
 
 class {{entityName}} extends Entity {
+   //use Trashable; // Enable trashable functionality if needed by uncommenting this line
+
+    // If your table is not using timestamp for trash, you can define the column name and value.
+
+    /**
+     * Trash column name
+     */
+    // protected $trashColumn = 'status';
+
+    // Or for boolean column 'is_deleted'
+    // protected $trashColumn = 'is_deleted';
+    // protected $trashValue = true;
+    // protected $restoreValue = false;
+
+
     /**
      * Define the table name.
      */
@@ -13,7 +28,9 @@ class {{entityName}} extends Entity {
     /**
      * Define the fillable attributes.
      */
-    protected array $fillable = [];
+    protected array $fillable = [
+      //
+    ];
 
     /**
      * Define the relationships.
