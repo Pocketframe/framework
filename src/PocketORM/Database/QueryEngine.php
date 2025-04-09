@@ -7,6 +7,7 @@ use PDOException;
 use Pocketframe\PocketORM\Concerns\DeepFetch;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\DataSet;
+use Pocketframe\PocketORM\Schema\Schema;
 
 class QueryEngine
 {
@@ -27,15 +28,48 @@ class QueryEngine
   protected array $rawSelects = [];
   protected ?string $keyByColumn = null;
   private ?string $entityClass;
+  protected bool $withTrashed = false;
+  protected bool $onlyTrashed = false;
 
   public function __construct($entity)
   {
-    if (is_string($entity) && class_exists($entity) && is_subclass_of($entity, Entity::class)) {
-      $this->entityClass = $entity;
-      $this->table = $entity::getTable();
+    if (is_object($entity)) {
+      $entityClass = get_class($entity);
+      if (!is_subclass_of($entityClass, Entity::class)) {
+        throw new \InvalidArgumentException(sprintf(
+          "Invalid entity instance. Class '%s' must extend %s.",
+          $entityClass,
+          Entity::class
+        ));
+      }
+      $this->entityClass = $entityClass;
+      $this->table = $entityClass::getTable();
+    } elseif (is_string($entity)) {
+      if (class_exists($entity) && is_subclass_of($entity, Entity::class) && method_exists($entity, 'getTable')) {
+        $this->entityClass = $entity;
+        $this->table = $entity::getTable();
+      } else {
+        // Treat as table name
+        $this->table = $entity;
+        $this->entityClass = null;
+      }
     } else {
-      throw new \InvalidArgumentException("Invalid entity class provided.");
+      throw new \InvalidArgumentException(sprintf(
+        "Invalid entity or table name. Must be an Entity class/instance or a table name string. Given: %s",
+        gettype($entity)
+      ));
     }
+  }
+
+  /**
+   * Static factory method for building a new QueryEngine instance.
+   *
+   * @param mixed $entity An Entity class name, instance, or table name string.
+   * @return self
+   */
+  public static function for($entity): self
+  {
+    return new self($entity);
   }
   // SELECT METHODS
 
@@ -143,6 +177,17 @@ class QueryEngine
     return $this->whereNull($column, $boolean, true);
   }
 
+  public function whereColumn(string $first, string $operator, string $second): self
+  {
+    $this->wheres[] = "{$first} {$operator} {$second}";
+    return $this;
+  }
+
+  public function orWhereColumn(string $first, string $operator, string $second): self
+  {
+    return $this->whereColumn($first, $operator, $second, 'OR');
+  }
+
   // JOIN METHODS
 
   public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): self
@@ -186,9 +231,31 @@ class QueryEngine
   {
     $columns = implode(', ', array_map(fn($col) => "`$col`", array_keys($data)));
     $placeholders = implode(', ', array_fill(0, count($data), '?'));
+
     $sql = "INSERT INTO `{$this->table}` ($columns) VALUES ($placeholders)";
-    $stmt = $this->executeStatement($sql, array_values($data));
-    return Connection::getInstance()->lastInsertId();
+    $this->executeStatement($sql, array_values($data));
+
+    // Get last insert ID from connection, not statement
+    return (int) Connection::getInstance()->lastInsertId();
+  }
+
+  public function insertBatch(array $rows): int
+  {
+    if (empty($rows)) return 0;
+
+    $columns = implode(', ', array_map(fn($col) => "`$col`", array_keys($rows[0])));
+    $placeholders = implode(', ', array_fill(0, count($rows[0]), '?'));
+    $values = [];
+
+    foreach ($rows as $row) {
+      $values = array_merge($values, array_values($row));
+    }
+
+    $sql = "INSERT INTO `{$this->table}` ($columns) VALUES " .
+      rtrim(str_repeat("($placeholders), ", count($rows)), ', ');
+
+    $stmt = $this->executeStatement($sql, $values);
+    return $stmt->rowCount();
   }
 
   public function update(array $data): int
@@ -211,6 +278,7 @@ class QueryEngine
 
   public function get(): DataSet
   {
+    $this->applySoftDeleteConditions();
     $sql = $this->compileSelect();
     $records = $this->executeQuery($sql);
 
@@ -222,11 +290,93 @@ class QueryEngine
     return $records;
   }
 
+  /**
+   * Get the first record of the query result
+   *
+   * @return object|null The first entity or null
+   */
   public function first(): ?object
   {
+    $this->applySoftDeleteConditions();
     $this->limit(1);
     $result = $this->get();
     return $result->first();
+  }
+
+  /**
+   * Find a single record by primary key (ID)
+   *
+   * @param int|string $id The primary key value
+   * @return object|null The found entity or null
+   */
+  public function find($id): ?object
+  {
+    $this->applySoftDeleteConditions();
+    return $this->where('id', '=', $id)->first();
+  }
+
+
+  /**
+   * Find a record by primary key or throw exception
+   *
+   * @param int|string $id The primary key value
+   * @return object The found entity
+   * @throws \RuntimeException If no record found
+   */
+  public function findOrFail($id): object
+  {
+    if ($result = $this->find($id)) {
+      return $result;
+    }
+
+    throw new \RuntimeException("No record found for ID {$id}");
+  }
+
+  public function withTrashed(): self
+  {
+    $this->withTrashed = true;
+    return $this;
+  }
+
+  public function onlyTrashed(): self
+  {
+    $this->onlyTrashed = true;
+    return $this;
+  }
+
+  protected function applySoftDeleteConditions(): void
+  {
+    if ($this->entityClass === null) {
+      return;
+    }
+
+    $trashColumn = $this->getEntityTrashColumn();
+
+    if (!Schema::tableHasColumn($this->table, $trashColumn)) return;
+
+    if ($this->onlyTrashed) {
+      $this->whereNotNull($trashColumn);
+    } elseif (!$this->withTrashed) {
+      $this->whereNull($trashColumn);
+    }
+  }
+
+  private function getEntityTrashColumn(): string
+  {
+    $default = 'trashed_at';
+
+    if (!$this->entityClass || !class_exists($this->entityClass)) {
+      return $default;
+    }
+
+    try {
+      $reflection = new \ReflectionClass($this->entityClass);
+      $property = $reflection->getProperty('trashColumn');
+      $property->setAccessible(true); // Bypass visibility
+      return $property->getValue() ?? $default;
+    } catch (\ReflectionException $e) {
+      return $default;
+    }
   }
 
   // SQL COMPILATION
@@ -284,24 +434,32 @@ class QueryEngine
     foreach ($this->wheres as $index => $where) {
       $clause = $index === 0 ? '' : $where['boolean'] . ' ';
 
+      // Handle proper quoting for table.column syntax.
+      $column = $where['column'];
+      if (strpos($column, '.') !== false) {
+        $parts = explode('.', $column);
+        $column = implode('.', array_map(fn($part) => "`$part`", $parts));
+      } else {
+        $column = "`$column`";
+      }
+
       switch ($where['type']) {
         case 'basic':
-          $clause .= "`{$where['column']}` {$where['operator']} ?";
+          $clause .= "$column {$where['operator']} ?";
           break;
         case 'in':
           $placeholders = implode(', ', array_fill(0, count($where['values']), '?'));
           $not = $where['not'] ? 'NOT ' : '';
-          $clause .= "`{$where['column']}` {$not}IN ($placeholders)";
+          $clause .= "$column {$not}IN ($placeholders)";
           break;
         case 'null':
           $not = $where['not'] ? 'NOT ' : '';
-          $clause .= "`{$where['column']}` IS {$not}NULL";
+          $clause .= "$column IS {$not}NULL";
           break;
       }
 
       $clauses[] = $clause;
     }
-
     return ' WHERE ' . implode(' ', $clauses);
   }
 
@@ -312,18 +470,24 @@ class QueryEngine
     $stmt = $this->executeStatement($sql, $this->bindings);
     $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Hydrate entities if a model class is specified
     if ($this->entityClass && class_exists($this->entityClass)) {
       $hydrated = [];
       foreach ($data as $record) {
         $entity = new $this->entityClass;
-        $entity->fill($record);
+        $integerColumns = $entity->getIntegerColumns();
+
+        foreach ($record as $key => $value) {
+          // Cast IDs to integers
+          if (in_array($key, $integerColumns, true)) {
+            $value = (int)$value;
+          }
+          $entity->attributes[$key] = $value;
+        }
         $hydrated[] = $entity;
       }
       $data = $hydrated;
     }
 
-    // Rest of your existing code...
     return new DataSet($data);
   }
 
