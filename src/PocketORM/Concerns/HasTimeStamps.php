@@ -3,6 +3,7 @@
 namespace Pocketframe\PocketORM\Concerns;
 
 use Carbon\Carbon;
+use Pocketframe\PocketORM\Schema\Schema;
 
 trait HasTimeStamps
 {
@@ -16,14 +17,14 @@ trait HasTimeStamps
 
   protected function updateTimeStamps(): void
   {
-    if ($this->timestamps) {
-      $time = $this->freshTimeStamp();
+    $table = static::getTable();
 
-      if (!$this->exists() && !isset($this->attributes['created_at'])) {
-        $this->attributes['created_at'] = $time;
-      }
+    if (!$this->exists() && Schema::tableHasColumn($table, 'created_at')) {
+      $this->attributes['created_at'] = Carbon::now();
+    }
 
-      $this->attributes['updated_at'] = $time;
+    if (Schema::tableHasColumn($table, 'updated_at')) {
+      $this->attributes['updated_at'] = Carbon::now();
     }
   }
 
