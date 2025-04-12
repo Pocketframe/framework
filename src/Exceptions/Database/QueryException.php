@@ -2,12 +2,15 @@
 
 namespace Pocketframe\Exceptions\Database;
 
-use Pocketframe\Exceptions\PocketframeException;
+use PDOException;
+use RuntimeException;
 
-class QueryException extends PocketframeException
+class QueryException extends RuntimeException implements \Throwable
 {
-  public function __construct($message = "Database query error")
+  public function __construct($message = "Failed to execute query.")
   {
-    parent::__construct($message, 500);
+    parent::__construct(
+      $message
+    );
   }
 }

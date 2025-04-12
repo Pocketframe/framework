@@ -137,12 +137,23 @@ class Storage
       mkdir($linkParentDir, 0755, true);
     }
 
-    // Create symlink if it doesn't exist
+    // Create symlink (or junction) if it doesn't exist
     if (!file_exists($link)) {
-      if (symlink($target, $link)) {
-        echo "Public storage linked successfully.\n";
+      // Check if running on Windows
+      if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+        // On Windows, create a junction using the mklink command
+        exec("mklink /J \"{$link}\" \"{$target}\"", $output, $returnVar);
+        if ($returnVar === 0) {
+          echo "Public storage linked successfully.\n";
+        } else {
+          echo "Failed to create public storage link.\n";
+        }
       } else {
-        echo "Failed to create public storage link.\n";
+        if (symlink($target, $link)) {
+          echo "Public storage linked successfully.\n";
+        } else {
+          echo "Failed to create public storage link.\n";
+        }
       }
     } else {
       echo "Public storage link already exists.\n";

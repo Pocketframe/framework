@@ -200,7 +200,13 @@ class Request
    */
   public function sanitize($input)
   {
-    return htmlspecialchars(trim($input), ENT_QUOTES, 'UTF-8');
+    if (is_array($input)) {
+      return array_map(function ($item) {
+        return is_array($item) ? $item : htmlspecialchars(trim($item ?? ''), ENT_QUOTES, 'UTF-8');
+      }, $input);
+    }
+
+    return htmlspecialchars(trim($input ?? ''), ENT_QUOTES, 'UTF-8');
   }
 
   /**

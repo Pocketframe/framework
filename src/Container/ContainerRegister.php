@@ -5,7 +5,6 @@ namespace Pocketframe\Container;
 use Pocketframe\Container\Container;
 use Pocketframe\Exceptions\Handler;
 use Pocketframe\Database\Database;
-use Pocketframe\Exceptions\DatabaseException;
 use Pocketframe\Logger\Logger;
 
 class ContainerRegister
@@ -23,8 +22,8 @@ class ContainerRegister
     });
 
     $container->bind(Database::class, function () {
-      $config = require config_path('database');
-      return new Database($config['database']);
+      $config = config('database.database');
+      return new Database($config);
     });
 
     $container->bind(Logger::class, function () {

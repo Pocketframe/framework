@@ -8,6 +8,12 @@ use RuntimeException;
 
 class Response
 {
+  /**
+   * HTTP status codes
+   */
+  const CONTINUE              = 100;
+  const SWITCHING_PROTOCOLS    = 101;
+  const PROCESSING            = 102;
   const OK                    = 200;
   const CREATED               = 201;
   const REDIRECT              = 302;
@@ -19,10 +25,29 @@ class Response
   const PAGE_EXPIRED          = 419;
   const INTERNAL_SERVER_ERROR = 500;
 
+  /**
+   * @var int The HTTP status code for the response
+   */
   protected int $status = self::OK;
+  /**
+   * @var array The headers for the response
+   */
   protected array $headers = [];
+  /**
+   * @var string The content for the response
+   */
   protected string $content = '';
 
+
+  /**
+   * Constructor
+   *
+   * This method initializes the response object with the given content, status code, and headers.
+   *
+   * @param string $content The content for the response
+   * @param int $status The HTTP status code for the response
+   * @param array $headers The headers for the response
+   */
   public function __construct(string $content = '', int $status = self::OK, array $headers = [])
   {
     $this->content = $content;
@@ -44,7 +69,7 @@ class Response
    * @param int $status The HTTP status code to set (defaults to 200 OK)
    * @return Response A new Response object containing the rendered view
    */
-  public static function view($view, $data = [], $status = self::OK): Response
+  public static function view(string $view, array $data = [], int $status = self::OK): Response
   {
     $content = View::render($view, $data);
     return new self($content, $status, [
@@ -58,13 +83,14 @@ class Response
   /**
    * Send a JSON response and exit the script
    *
-   * This method sends a JSON response and exits the script.
+   * This method sends a JSON response and exits the script. It takes an array of data to encode as JSON, an optional
+   * HTTP status code, and returns a new Response object.
    *
    * @param array $data The data to encode as JSON
    * @param int $status The HTTP status code to set
    * @return Response The new Response object
    */
-  public static function json($data, $status = self::OK): Response
+  public static function json(array $data, int $status = self::OK): Response
   {
     return new static(
       json_encode($data),
@@ -76,7 +102,9 @@ class Response
   /**
    * Send the response and exit the script
    *
-   * This method sends the response and exits the script.
+   * This method sends the response and exits the script. It sets the HTTP status code, headers, and content.
+   * It also handles any exceptions that may occur during the sending process.
+   * If an exception occurs, it falls back to a default error page.
    *
    * @return void
    */
@@ -92,17 +120,31 @@ class Response
   /**
    * Redirect to a specific URL
    *
-   * This method redirects to a specific URL and returns a new Response object.
+   * This method redirects to a specific URL and returns a new Response object. It takes the URL to redirect to,
+   * an optional HTTP status code, and an optional array of session data to store. It also handles any exceptions
+   * that may occur during the redirect process.
    *
    * @param string $url The URL to redirect to
    * @param int $status The HTTP status code to set
+   * @param array $sessionData Optional session data to store
    * @return self The new Response object
    */
   public static function redirect(string $url, int $status = self::REDIRECT, array $sessionData = []): self
   {
-    unset($_SESSION['old']);
+    $response = new static('', $status, ['Location' => $url]);
 
-    return new static('', $status, ['Location' => $url]);
+    if (!empty($sessionData['old'])) {
+      Session::flashOld($sessionData['old']);
+    }
+
+    // Flash any other session data
+    foreach ($sessionData as $key => $value) {
+      if ($key !== 'old') {
+        Session::flash($key, $value);
+      }
+    }
+
+    return $response;
   }
 
   /**
@@ -112,8 +154,9 @@ class Response
    * @param string $value The session value
    * @return self
    */
-  public function withSession(string $key, string $value): self
+  public function with(string $key, string $value): self
   {
+
     Session::flash($key, $value);
     return $this;
   }
@@ -154,7 +197,7 @@ class Response
    * @param array $headers The headers to send
    * @return self The new Response object
    */
-  public static function file(string $path, string $name = null, array $headers = []): self
+  public static function file(string $path, ?string $name = null, array $headers = []): self
   {
     if (!file_exists($path)) {
       throw new RuntimeException("File not found: $path");

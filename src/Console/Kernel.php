@@ -1,4 +1,3 @@
-#!/usr/bin/env php
 <?php
 
 declare(strict_types=1);
@@ -25,6 +24,30 @@ class Kernel
       'controller:create'  => [
         'class' => \Pocketframe\Console\Commands\CreateControllerCommand::class,
         'desc'  => 'Generate a new controller file. Options: --api, --resource (-r), --invokable (-i).'
+      ],
+      'entity:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateEntityCommand::class,
+        'desc' => 'Create a new entity (use -s for migration, -b for blueprint)'
+      ],
+      'schema:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateTableScriptCommand::class,
+        'desc' => 'Create a new table script'
+      ],
+      'schema' => [
+        'class' => \Pocketframe\Console\Commands\SchemaCommand::class,
+        'desc'  => 'Manage database schemas (apply, rollback, fresh)'
+      ],
+      'planter:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateDataPlanterCommand::class,
+        'desc' => 'Create a new data planter'
+      ],
+      'plant' => [
+        'class' => \Pocketframe\Console\Commands\PlantCommand::class,
+        'desc'  => 'Plant the database with data planters (use --class=PlanterClass for specific planter)'
+      ],
+      'blueprint:create' => [
+        'class' => \Pocketframe\Console\Commands\CreateBlueprintCommand::class,
+        'desc' => 'Create a new Entity blueprint'
       ],
       'middleware:create'  => [
         'class' => \Pocketframe\Console\Commands\CreateMiddlewareCommand::class,
@@ -57,6 +80,10 @@ class Kernel
       'help' => [
         'class' => \Pocketframe\Console\Commands\HelpCommand::class,
         'desc'  => 'Display a list of all available commands.'
+      ],
+      'about' => [
+        'class' => \Pocketframe\Console\Commands\AboutCommand::class,
+        'desc'  => 'Display information about the Pocketframe framework.'
       ],
     ];
 

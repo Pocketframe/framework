@@ -1,4 +1,3 @@
-#!/usr/bin/env php
 <?php
 
 declare(strict_types=1);
@@ -16,7 +15,6 @@ class CreatePartialCommand implements CommandInterface
   public function __construct(array $args)
   {
     $this->args = $args;
-    // Set the stub path for partials
     $this->stubPath = base_path('vendor/pocketframe/framework/src/stubs/partials/');
   }
 
@@ -26,30 +24,60 @@ class CreatePartialCommand implements CommandInterface
       echo "Usage: php pocket partial:create PartialName\n";
       exit(1);
     }
-    $partialName = $this->args[0];
+
+    // Normalize directory separators
+    $partialName = str_replace('\\', '/', $this->args[0]);
     $partialNameTrimmed = trim($partialName, '/');
-    $lowerName = strtolower(basename($partialNameTrimmed));
+    $baseName = basename($partialNameTrimmed);
+    $lowerName = strtolower($baseName);
 
-    // Allow subdirectories under resources/views/partials
-    $partialDir = base_path("resources/views/partials/" . dirname($partialNameTrimmed) . '/');
-    if (!is_dir($partialDir)) {
-      mkdir($partialDir, 0777, true);
+    // Windows-compatible path construction
+    $partialDir = base_path('resources/views/partials/' . dirname($partialNameTrimmed) . DIRECTORY_SEPARATOR);
+    $this->createDirectory($partialDir);
+
+    $filePath = $partialDir . $lowerName . '.view.php';
+    $this->createPartialFile($filePath, $partialNameTrimmed);
+  }
+
+  protected function createDirectory(string $path): void
+  {
+    if (!is_dir($path) && !mkdir($path, 0755, true) && !is_dir($path)) {
+      throw new Exception("Failed to create directory: {$path}");
     }
+  }
 
-    // Append .view.php if not present.
-    $partialFilePath = $partialDir . $lowerName . ".view.php";
-    if (file_exists($partialFilePath)) {
-      echo "💡 Partial already exists: {$partialFilePath}\n";
+  protected function createPartialFile(string $path, string $name): void
+  {
+    $stubFile = $this->stubPath . 'partial.stub';
+    $this->validateStub($stubFile);
+
+    $content = str_replace(
+      '{{partialName}}',
+      $name,
+      file_get_contents($stubFile)
+    );
+
+    $this->writeFile($path, $content, 'Partial');
+  }
+
+  protected function validateStub(string $path): void
+  {
+    if (!file_exists($path)) {
+      throw new Exception("Stub file not found: {$path}");
+    }
+  }
+
+  protected function writeFile(string $path, string $content, string $type): void
+  {
+    if (file_exists($path)) {
+      echo "💡 {$type} already exists: {$path}\n";
       exit(1);
     }
 
-    $stubFile = $this->stubPath . 'partial.stub';
-    if (!file_exists($stubFile)) {
-      throw new Exception("Partial stub not found: {$stubFile}");
+    if (file_put_contents($path, $content) === false) {
+      throw new Exception("Failed to write {$type} file: {$path}");
     }
-    $stub = file_get_contents($stubFile);
-    $stub = str_replace('{{partialName}}', $partialNameTrimmed, $stub);
-    file_put_contents($partialFilePath, $stub);
-    echo "💪 Partial created: {$partialFilePath}\n";
+
+    echo "💪 {$type} created: {$path}\n";
   }
 }

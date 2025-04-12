@@ -1,0 +1,20 @@
+<?php
+
+namespace Database\Schemas;
+
+use Pocketframe\PocketORM\Schema\TableScript;
+use Pocketframe\PocketORM\Schema\TableBuilder;
+
+class {{className}} extends TableScript {
+    public function up(): void {
+        $this->createTable('{{tableName}}', function(TableBuilder $table) {
+            $table->id();
+            //
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void {
+        $this->dropTable('{{tableName}}');
+    }
+}
