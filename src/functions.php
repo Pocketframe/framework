@@ -226,7 +226,12 @@ if (!function_exists('error')) {
  * @return mixed The old input value or default
  */
 if (!function_exists('old')) {
-  function old(string $key, $default = null) {}
+  function old(string $key, $default = null)
+  {
+    $value = $_SESSION['_old'][$key] ?? $default;
+    unset($_SESSION['_old'][$key]);
+    return $value;
+  }
 }
 
 
