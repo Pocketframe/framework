@@ -723,17 +723,44 @@ class TableBuilder
 
 
   /**
-   * @method trashable
-   * Adds a soft delete column.
+   * Adds a trashable column.
    *
-   * Adds a column to the table that allows soft deleting records.
+   * A trashable column can be used to mark a record as deleted instead of hard-deleting it from the database.
+   * This can be useful for auditing and tracking deleted records.
    *
    * @param string $name The name of the column.
+   * @param string $type The type of the column.
+   * @param array $options The options for the column.
    * @return self
+   *
+   * @example
+   * $table->trashable('deleted_at');
+   * $table->trashable('deleted_at', 'timestamp');
+   * $table->trashable('status', 'enum', ['active', 'inactive']);
+   * $table->trashable('trashed');
    */
-  public function trashable(string $name = 'trashed_at'): self
+  public function trashable(string $name = 'trashed_at', string $type = 'timestamp', array $options = []): self
   {
-    $this->columns[] = "{$name} TIMESTAMP NULL DEFAULT NULL";
+    switch ($type) {
+      case 'timestamp':
+        $this->columns[] = "{$this->quoteIdentifier($name)} TIMESTAMP NULL DEFAULT NULL";
+        break;
+      case 'enum':
+        $allowed = $options['allowed'] ?? ['active', 'inactive'];
+        $this->enum($name, $allowed);
+        if (isset($options['default'])) {
+          $this->default($options['default']);
+        }
+        break;
+      case 'boolean':
+        $this->boolean($name);
+        if (isset($options['default'])) {
+          $this->default($options['default']);
+        }
+        break;
+      default:
+        throw new \InvalidArgumentException("Unsupported trashable type: {$type}");
+    }
     $this->lastColumnName = $name;
     return $this;
   }

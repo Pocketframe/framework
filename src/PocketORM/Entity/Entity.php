@@ -13,6 +13,7 @@ use Pocketframe\PocketORM\Relationships\HasOne;
 use Pocketframe\PocketORM\Relationships\HasMultiple;
 use Pocketframe\PocketORM\Relationships\OwnedBy;
 use Pocketframe\PocketORM\Relationships\Bridge;
+use Pocketframe\PocketORM\Schema\Schema;
 
 /**
  * Base Active Record–style Entity class.
@@ -77,6 +78,13 @@ abstract class Entity
    */
   protected array $eagerLoaded = [];
 
+  /**
+   * Trash column name
+   *
+   * @var string
+   */
+  protected static string $trashColumn = 'trashed_at';
+
   // Relationship type constants for convenience
   const HAS_ONE      = HasOne::class;
   const HAS_MULTIPLE = HasMultiple::class;
@@ -139,6 +147,11 @@ abstract class Entity
     $this->attributes[$name] = $value;
   }
 
+  public function __isset(string $name): bool
+  {
+    return array_key_exists($name, $this->attributes);
+  }
+
   /**
    * Returns debug information about the entity.
    *
@@ -165,6 +178,32 @@ abstract class Entity
     return $this->eagerLoaded;
   }
 
+
+  public function getIntegerColumns(): array
+  {
+    $integerColumns = ['id']; // Always cast 'id' as integer
+
+    foreach ($this->relationship as $relation => $config) {
+      $relationshipType = $config[0];
+
+      switch ($relationshipType) {
+        case self::BRIDGE:
+          // Bridge relationships define parentKey and relatedKey
+          $integerColumns[] = $config[3]; // parentKey (e.g., category_id)
+          $integerColumns[] = $config[4]; // relatedKey (e.g., tag_id)
+          break;
+        case self::HAS_ONE:
+        case self::HAS_MULTIPLE:
+        case self::OWNED_BY:
+          // Third element is the foreign key
+          $integerColumns[] = $config[2];
+          break;
+      }
+    }
+
+    return array_unique($integerColumns);
+  }
+
   /**
    * Initialize relationships.
    *
@@ -187,7 +226,16 @@ abstract class Entity
    */
   public function getRelationshipConfig(string $relation): ?array
   {
-    return $this->relationship[$relation] ?? null;
+    $config = $this->relationship[$relation] ?? null;
+
+    if ($config && $config[0] === Bridge::class && count($config) < 5) {
+      throw new \InvalidArgumentException(
+        "Invalid Bridge configuration for {$relation}. " .
+          "Expected format: [Bridge::class, RelatedClass, PivotTable, ParentKey, RelatedKey]"
+      );
+    }
+
+    return $config;
   }
 
   /**
@@ -213,10 +261,18 @@ abstract class Entity
    */
   public function fill(array $attributes): self
   {
+    $table = static::getTable();
+    $trashColumn = static::$trashColumn;
     foreach ($attributes as $key => $value) {
+      if ($key === $trashColumn && Schema::tableHasColumn($table, $trashColumn)) {
+        $this->attributes[$key] = $value;
+        continue;
+      }
+
       if (!in_array($key, $this->fillable) && !empty($this->fillable)) {
         throw new MassAssignmentError(static::class, $key);
       }
+
       $this->attributes[$key] = $value;
     }
     return $this;
@@ -224,6 +280,10 @@ abstract class Entity
 
   /**
    * Return only fillable attributes (for inserts/updates).
+   *
+   * Returns only fillable attributes, which are the attributes that can be mass
+   * assigned to the entity. If the fillable attribute is empty, all attributes
+   * are returned.
    *
    * @return array
    */
@@ -237,14 +297,35 @@ abstract class Entity
   }
 
   /**
-   * Return the associated table name, defaulting to "classname + s" if not set.
+   * Get the table name for the entity.
+   *
+   * Returns the table name for the entity. If the table name is not set, it is
+   * generated from the class name.
    *
    * @return string
    */
   public static function getTable(): string
   {
-    return static::$table ?? strtolower(StringUtils::classBasename(static::class)) . 's';
+    if (!isset(static::$table)) {
+      static::$table = self::generateTableName();
+    }
+    return static::$table;
   }
+
+  /**
+   * Generate the table name from the class name.
+   *
+   * Returns the table name by pluralizing the class name. This is used when the
+   * table name is not explicitly set.
+   *
+   * @return string
+   */
+  private static function generateTableName(): string
+  {
+    $className = (new \ReflectionClass(static::class))->getShortName();
+    return strtolower(StringUtils::plural($className));
+  }
+
 
   /**
    * For date attributes, convert to Carbon instance.
@@ -278,16 +359,79 @@ abstract class Entity
       throw new \Exception("Undefined relationship: {$relation}");
     }
 
-    // Relationship config: [RelationshipClass, RelatedEntity, foreignKey?]
-    $config        = $this->relationship[$relation];
-    $relClass      = $config[0];
+    $config = $this->relationship[$relation];
+    $relClass = $config[0];
     $relatedEntity = $config[1];
-    $foreignKey    = $config[2] ?? $this->guessForeignKey();
 
-    $instance = new $relClass($this, $relatedEntity, $foreignKey);
+    // Check if the relationship is a Bridge
+    if ($relClass === Bridge::class) {
+      // Extract parameters specific to Bridge
+      $pivotTable = $config[2];
+      $parentKey = $config[3];
+      $relatedKey = $config[4];
+      $instance = new Bridge($this, $relatedEntity, $pivotTable, $parentKey, $relatedKey);
+    } else {
+      // Handle other relationships (HasOne, HasMultiple, OwnedBy)
+      $foreignKey = $config[2] ?? $this->guessForeignKey();
+      $instance = new $relClass($this, $relatedEntity, $foreignKey);
+    }
+
     $this->eagerLoaded[$relation] = $instance;
-
     return $instance;
+  }
+
+  /**
+   * Get the relationship handler for a given relationship.
+   *
+   * This method is used to retrieve the relationship handler for a specific
+   * relationship. If the relationship is not defined, an exception is thrown.
+   * If the relationship is not already loaded, it is loaded.
+   *
+   * @param string $relation The name of the relationship.
+   *
+   * @return mixed The relationship handler.
+   */
+  public function getRelationshipHandler(string $relation)
+  {
+    if (!isset($this->relationship[$relation])) {
+      throw new \InvalidArgumentException("Undefined relationship: {$relation}");
+    }
+
+    if (!isset($this->eagerLoaded[$relation])) {
+      $this->loadRelationship($relation);
+    }
+
+    return $this->eagerLoaded[$relation];
+  }
+
+  /**
+   * Handle dynamic method calls.
+   *
+   * This method is used to handle dynamic method calls to the entity. If the
+   * method is a relationship, it is retrieved using the getRelationshipHandler
+   * method. If the method is a regular method, it is called with the provided
+   * arguments. If the method is undefined, a BadMethodCallException is thrown.
+   *
+   * @param string $name The name of the method to call.
+   * @param array $arguments The arguments to pass to the method.
+   *
+   * @return mixed The result of the method call.
+   */
+  public function __call(string $name, array $arguments)
+  {
+    // Check if this is a relationship method call
+    if (isset($this->relationship[$name])) {
+      return $this->getRelationshipHandler($name);
+    }
+
+    // Handle other magic methods or throw error
+    if (method_exists($this, $name)) {
+      return $this->$name(...$arguments);
+    }
+
+    throw new \BadMethodCallException(
+      "Undefined method: " . static::class . "::$name"
+    );
   }
 
   /**
@@ -329,8 +473,21 @@ abstract class Entity
    */
   public function exists(): bool
   {
-    return isset($this->attributes['id']) && !is_null($this->attributes['id']);
+    return isset($this->attributes['id']) && $this->attributes['id'] !== null;
   }
+  /**
+   * Get the values of a specific column from the records.
+   *
+   * @param string $column The name of the column to retrieve.
+   *
+   * @return array An array of column values.
+   */
+  // public function getColumn(string $column): array
+  // {
+  //   return array_map(function ($item) use ($column) {
+  //     return is_object($item) ? $item->{$column} : $item[$column];
+  //   }, $this->attributes);
+  // }
 
   /**
    * Convert entity and any loaded relationships to array form.

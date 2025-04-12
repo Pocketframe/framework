@@ -18,13 +18,8 @@ class Bridge
   private string $parentKey;
   private string $relatedKey;
 
-  public function __construct(
-    Entity $parent,
-    string $related,
-    string $pivotTable,
-    string $parentKey,
-    string $relatedKey
-  ) {
+  public function __construct(Entity $parent, string $related, string $pivotTable, string $parentKey, string $relatedKey)
+  {
     $this->parent     = $parent;
     $this->related    = $related;
     $this->pivotTable = $pivotTable;
@@ -34,27 +29,43 @@ class Bridge
 
   public function eagerLoad(array $parents): array
   {
-    $parentIds = array_column(array_map(fn($p) => (array)$p, $parents), 'id');
+    $parentIds = array_map(fn($parent) => (int)$parent->id, $parents);
 
-    $pivotData = (new QueryEngine($this->pivotTable, $this->related))
+    // Disable soft delete filtering on the pivot table
+    $pivotData = (new QueryEngine($this->pivotTable))
+      ->withTrashed()
       ->whereIn($this->parentKey, $parentIds)
+      ->get()
+      ->toArray();
+
+    // Extract unique related IDs from pivot data
+    $relatedIds = array_map(
+      'intval',
+      array_unique(array_column($pivotData, $this->relatedKey))
+    );
+
+    // Fetch related IDs
+    $relatedRecordsRaw = (new QueryEngine($this->related))
+      ->whereIn('id', $relatedIds)
+      ->withTrashed()
       ->get()
       ->all();
 
-    $relatedIds = array_unique(
-      array_column(array_map(fn($p) => (array)$p, $pivotData), $this->relatedKey)
-    );
+    $relatedRecords = [];
+    foreach ($relatedRecordsRaw as $record) {
+      $relatedRecords[$record->id] = $record;
+    }
 
-    $relatedRecords = (new QueryEngine($this->related))
-      ->whereIn('id', $relatedIds)
-      ->keyBy('id')
-      ->get();
 
+    // Map parent IDs to their tags
     $mapped = [];
     foreach ($pivotData as $pivot) {
-      $pivotArray = (array)$pivot;
-      $mapped[$pivotArray[$this->parentKey]][] =
-        $relatedRecords[$pivotArray[$this->relatedKey]] ?? null;
+      $parentId = (int)$pivot[$this->parentKey];
+      $relatedId = (int)$pivot[$this->relatedKey];
+
+      if (isset($relatedRecords[$relatedId])) {
+        $mapped[$parentId][] = $relatedRecords[$relatedId];
+      }
     }
 
     return $mapped;
@@ -67,6 +78,10 @@ class Bridge
 
   public function get(): DataSet
   {
+    if (!isset($this->parent->id)) {
+      throw new \RuntimeException("Cannot fetch relationship - parent entity lacks an ID");
+    }
+
     if (!class_exists($this->related)) {
       throw new RelationshipResolutionError(
         "Related class {$this->related} does not exist",
@@ -74,7 +89,8 @@ class Bridge
       );
     }
 
-    return (new QueryEngine($this->pivotTable, $this->related))
+    return (new QueryEngine($this->pivotTable))
+      ->withTrashed()
       ->select([$this->related::getTable() . '.*'])
       ->join(
         $this->related::getTable(),
@@ -86,20 +102,54 @@ class Bridge
       ->get();
   }
 
-  public function attach($relatedId): void
+  public function attach($relatedIds): void
   {
-    (new QueryEngine($this->pivotTable, $this->related::class))
-      ->insert([
-        $this->parentKey => $this->parent->id,
-        $this->relatedKey => $relatedId
-      ]);
+    if (!is_array($relatedIds)) {
+      $relatedIds = [$relatedIds];
+    }
+
+    // Validate IDs are integers
+    foreach ($relatedIds as $id) {
+      if (!is_numeric($id)) {
+        throw new \InvalidArgumentException(
+          "Invalid related ID: " . print_r($id, true)
+        );
+      }
+    }
+
+    $insertData = array_map(fn($id) => [
+      $this->parentKey => $this->parent->id,
+      $this->relatedKey => (int) $id
+    ], $relatedIds);
+
+    (new QueryEngine($this->pivotTable))
+      ->insertBatch($insertData);
   }
 
   public function detach($relatedId): void
   {
-    (new QueryEngine($this->pivotTable, $this->related::class))
+    if (!isset($this->parent->id)) {
+      throw new \RuntimeException("Cannot detach - parent entity lacks an ID");
+    }
+
+    (new QueryEngine($this->pivotTable, $this->related))
       ->where($this->parentKey, '=', $this->parent->id)
       ->where($this->relatedKey, '=', $relatedId)
       ->delete();
+  }
+
+  public function sync(array $relatedIds): void
+  {
+    if (!isset($this->parent->id)) {
+      throw new \RuntimeException("Cannot sync relationships - parent entity lacks an ID");
+    }
+
+    // Delete all existing pivot entries for this parent
+    (new QueryEngine($this->pivotTable))
+      ->where($this->parentKey, '=', $this->parent->id)
+      ->delete();
+
+    // Attach the new IDs
+    $this->attach($relatedIds);
   }
 }

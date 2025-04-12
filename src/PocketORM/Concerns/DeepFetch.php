@@ -2,6 +2,7 @@
 
 namespace Pocketframe\PocketORM\Concerns;
 
+use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\RecordSet;
 use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Relationships\Bridge;
@@ -56,13 +57,21 @@ trait DeepFetch
     $relation = array_shift($relations);
     $first = reset($allRecords);
 
+    if (!$first instanceof Entity) {
+      throw new \RuntimeException('Records must be Entity instances');
+    }
+
     $config = $first->getRelationshipConfig($relation);
     if (!$config) {
       throw new \Exception("Relationship '{$relation}' is not defined in " . get_class($first));
     }
-    [$relationshipClass, $relatedEntity, $foreignKey] = $config;
+    // [$relationshipClass, $relatedEntity, $foreignKey] = $config;
+    // Extract relationship parameters based on type
+    $relationshipClass = $config[0];
+    $args = $this->prepareRelationshipArgs($first, $config);
 
-    $relationship = new $relationshipClass($first, $relatedEntity, $foreignKey ?? null);
+    // Create relationship instance with proper arguments
+    $relationship = new $relationshipClass(...$args);
     $relatedMap = $relationship->eagerLoad($allRecords);
 
     foreach ($allRecords as $parent) {
@@ -78,6 +87,29 @@ trait DeepFetch
       $relatedRecords = new DataSet(array_merge(...array_values($relatedMap)));
       $this->batchLoad($relatedRecords, $relations);
     }
+  }
+
+  private function prepareRelationshipArgs(Entity $parent, array $config): array
+  {
+    $relationshipClass = $config[0];
+
+    // Handle Bridge relationships specially
+    if ($relationshipClass === Bridge::class) {
+      return [
+        $parent,        // Parent entity
+        $config[1],     // Related class
+        $config[2],     // Pivot table
+        $config[3],     // Parent key
+        $config[4]      // Related key
+      ];
+    }
+
+    // Default handling for other relationships
+    return [
+      $parent,        // Parent entity
+      $config[1],     // Related class
+      $config[2] ?? null // Foreign key
+    ];
   }
 
 

@@ -5,6 +5,7 @@ namespace Pocketframe\PocketORM\Database;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Entity\HookDispatcher;
 use Pocketframe\PocketORM\Exceptions\PersistenceFailureError;
+use Pocketframe\PocketORM\Schema\Schema;
 
 /**
  * Maps entities to the database (Active Record style).
@@ -16,10 +17,11 @@ class EntityMapper
    */
   public static function find(string $entityClass, $id): ?Entity
   {
-    return (new QueryEngine($entityClass::getTable()))
+    return (new QueryEngine($entityClass))
       ->where('id', '=', $id)
       ->first();
   }
+
 
   /**
    * Persist an entity (insert or update).
@@ -27,16 +29,16 @@ class EntityMapper
   public static function persist(Entity $entity): Entity
   {
     try {
-      $table = $entity::getTable();
+      $entityClass = get_class($entity);
       $data = self::prepareData($entity);
 
       if ($entity->exists()) {
         HookDispatcher::trigger('updating', $entity);
-        self::performUpdate($entity, $table, $data);
+        self::performUpdate($entityClass, $entity->id, $data);
         HookDispatcher::trigger('updated', $entity);
       } else {
         HookDispatcher::trigger('creating', $entity);
-        $id = self::performInsert($table, $data);
+        $id = self::performInsert($entityClass, $data);
         $entity->attributes['id'] = $id;
         HookDispatcher::trigger('created', $entity);
       }
@@ -100,25 +102,53 @@ class EntityMapper
    */
   private static function prepareData(Entity $entity): array
   {
+    $table = $entity::getTable();
     $data = [];
+
     foreach ($entity->getFillableAttributes() as $key => $value) {
-      $data[$key] = $value instanceof \DateTimeInterface
-        ? $value->format('Y-m-d H:i:s')
-        : $value;
+      $data[$key] = self::formatValue($value);
     }
+
+    // Add system-managed timestamps only if column exists
+    $systemFields = ['created_at', 'updated_at', 'trashed_at'];
+    foreach ($systemFields as $field) {
+      if (Schema::tableHasColumn($table, $field) && array_key_exists($field, $entity->attributes) && !isset($data[$field])) {
+        $data[$field] = self::formatValue($entity->attributes[$field]);
+      }
+    }
+
     return $data;
   }
 
-  private static function performUpdate(Entity $entity, string $table, array $data): void
+  private static function formatValue($value)
   {
-    (new QueryEngine($table))
-      ->where('id', '=', $entity->id)
+    return $value instanceof \DateTimeInterface
+      ? $value->format('Y-m-d H:i:s')
+      : $value;
+  }
+
+  private static function performUpdate(string $entityClass, $id, array $data): void
+  {
+    (new QueryEngine($entityClass))
+      ->where('id', '=', $id)
       ->update($data);
   }
 
-  private static function performInsert(string $table, array $data): int
+  private static function performInsert(string $entityClass, array $data): int
   {
-    return (new QueryEngine($table))
-      ->insert($data);
+    $query = new QueryEngine($entityClass::getTable());
+    $id = $query->insert($data);
+
+    // Verify ID is numeric
+    if (!is_numeric($id)) {
+      throw new PersistenceFailureError(
+        "Insert failed to return valid ID",
+        0,
+        $entityClass,
+        ['data' => $data]
+      );
+    }
+
+    return (int) $id;
   }
 }

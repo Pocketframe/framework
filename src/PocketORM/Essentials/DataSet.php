@@ -21,7 +21,20 @@ class DataSet implements IteratorAggregate
    */
   public function toArray(): array
   {
-    return array_map(fn($r) => (array)$r, $this->records);
+    return array_map(function ($record) {
+      return is_object($record) ? get_object_vars($record) : $record;
+    }, $this->records);
+  }
+
+  /**
+   * Static factory method for building a new DataSet instance.
+   *
+   * @param array $records
+   * @return self
+   */
+  public static function for(array $records): self
+  {
+    return new self($records);
   }
 
   /**
@@ -70,12 +83,20 @@ class DataSet implements IteratorAggregate
   /**
    * Pluck a property from the dataset.
    *
-   * @param string $property
+   * @param string $column
    * @return array
    */
-  public function pluck(string $property): array
+  public function pluck(string $column): array
   {
-    return array_column($this->records, $property);
+    return $this->getColumn($column);
+  }
+
+
+  public function getColumn(string $column): array
+  {
+    return array_map(function ($item) use ($column) {
+      return is_object($item) ? $item->{$column} : $item[$column];
+    }, $this->records);
   }
 
   /**

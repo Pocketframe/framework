@@ -242,7 +242,7 @@ class Database
   /**
    * Add a JOIN to the query
    *
-   * Adds a JOIN to the query.
+   * If you want to join a table to the query, use this method.
    *
    * @param string $table The table to join
    * @param string $firstColumn The first column to join on
