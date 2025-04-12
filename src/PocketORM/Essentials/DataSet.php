@@ -27,6 +27,17 @@ class DataSet implements IteratorAggregate
   }
 
   /**
+   * Static factory method for building a new DataSet instance.
+   *
+   * @param array $records
+   * @return self
+   */
+  public static function for(array $records): self
+  {
+    return new self($records);
+  }
+
+  /**
    * Get all records.
    *
    * @return array
@@ -79,6 +90,7 @@ class DataSet implements IteratorAggregate
   {
     return $this->getColumn($column);
   }
+
 
   public function getColumn(string $column): array
   {
