@@ -25,7 +25,8 @@
         "league/flysystem": "3.x-dev",
         "league/flysystem-local": "3.x-dev",
         "nesbot/carbon": "^3.x-dev",
-        "erusev/parsedown": "1.7.x-dev"
+        "erusev/parsedown": "1.7.x-dev",
+        "doctrine/dbal": "^4.2.x"
     },
     "require-dev": {
         "symfony/var-dumper": "7.3.x-dev",
