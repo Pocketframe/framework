@@ -8,7 +8,7 @@ class NumericRule implements Rule
 {
   public function isValid(mixed $value): bool
   {
-    return is_numeric($value);
+    return is_numeric($value) && ctype_digit($value);
   }
 
   public function message(string $field): string

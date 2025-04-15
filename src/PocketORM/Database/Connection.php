@@ -4,6 +4,8 @@ namespace Pocketframe\PocketORM\Database;
 
 use PDO;
 use PDOException;
+use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Connection as DbalConnection;
 
 /**
  * Manages a singleton PDO connection instance.
@@ -13,6 +15,7 @@ final class Connection
 {
   private static ?PDO $instance = null;
   private static array $config = [];
+  private static ?DbalConnection $dbalInstance = null;
 
   /**
    * Configure database parameters from a config array or .env.
@@ -140,6 +143,39 @@ final class Connection
     }
 
     return 'sqlite:' . $path;
+  }
+
+  /**
+   * Retrieve the singleton Doctrine DBAL connection instance.
+   */
+  public static function getDoctrineConnection(): DbalConnection
+  {
+    if (self::$dbalInstance === null) {
+      $driver = self::$config['driver'];
+      $dbalParams = [
+        'driver'   => match ($driver) {
+          'mysql' => 'pdo_mysql',
+          'pgsql' => 'pdo_pgsql',
+          'sqlite' => 'pdo_sqlite',
+          default => throw new PDOException("Unsupported driver for DBAL: $driver"),
+        },
+        'dbname'   => self::$config['database'],
+        'user'     => self::$config['username'] ?? '',
+        'password' => self::$config['password'] ?? '',
+        'host'     => self::$config['host'] ?? null,
+        'port'     => self::$config['port'] ?? null,
+      ];
+
+      // For SQLite, use the 'path' parameter instead of host/dbname
+      if ($driver === 'sqlite') {
+        $dbalParams['path'] = self::$config['database'];
+        // Remove dbname if present to avoid conflict
+        unset($dbalParams['dbname']);
+      }
+
+      self::$dbalInstance = DriverManager::getConnection($dbalParams);
+    }
+    return self::$dbalInstance;
   }
 
   // Transaction helpers (optional convenience methods)

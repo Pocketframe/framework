@@ -78,7 +78,7 @@ trait DeepFetch
       // Using parent's id for grouping (adjust if needed)
       $key = $parent->id;
       if ($key !== null) {
-        $parent->setEagerLoaded($relation, $this->formatLoadedData($relationship, $relatedMap[$key] ?? []));
+        $parent->setDeepFetch($relation, $this->formatLoadedData($relationship, $relatedMap[$key] ?? []));
       }
     }
 

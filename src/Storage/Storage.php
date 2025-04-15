@@ -67,6 +67,31 @@ class Storage
   }
 
   /**
+   * Get the full file system path for the given relative path.
+   *
+   * This method concatenates the disk root from the configuration with the
+   * provided relative path.
+   *
+   * @param string $relativePath The path relative to the disk root.
+   * @return string The fully resolved file system path.
+   */
+  public function path(string $relativePath): string
+  {
+    // Ensure the root directory ends with a directory separator
+    $root = rtrim($this->config['root'] ?? '', DIRECTORY_SEPARATOR);
+    // Ensure the relative path does not start with a directory separator
+    // to avoid double separators in the final path
+    // and concatenate the root with the relative path
+    // to form the full path.
+    // This is important for Windows compatibility.
+    // The ltrim function removes any leading directory separators from the relative path.
+    $relativePath = ltrim($relativePath, DIRECTORY_SEPARATOR);
+    // Concatenate the root and relative path
+    // using the directory separator for the current operating system.
+    return $root . DIRECTORY_SEPARATOR . $relativePath;
+  }
+
+  /**
    * Delete a file at the given path.
    *
    * @param string $path
