@@ -2,10 +2,12 @@
 
 namespace Pocketframe\Container;
 
+use Pocketframe\Console\Kernel;
 use Pocketframe\Container\Container;
 use Pocketframe\Exceptions\Handler;
 use Pocketframe\Database\Database;
 use Pocketframe\Logger\Logger;
+use Pocketframe\Package\PackageLoader;
 
 class ContainerRegister
 {
@@ -30,7 +32,13 @@ class ContainerRegister
       return new Logger();
     });
 
+    // Bind Kernel without needing $argv.
+    $container->singleton(Kernel::class, fn() => new Kernel());
+
     // Set the global container instance
     Container::getInstance()->bind(Container::class, fn() => $container);
+
+    // auto-discover and register packages
+    PackageLoader::loadPackages($container);
   }
 }
