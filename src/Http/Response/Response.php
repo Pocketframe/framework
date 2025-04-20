@@ -2,7 +2,7 @@
 
 namespace Pocketframe\Http\Response;
 
-use Pocketframe\Sessions\Session;
+use Pocketframe\Sessions\Mask\Session;
 use Pocketframe\TemplateEngine\View;
 use RuntimeException;
 
@@ -37,6 +37,11 @@ class Response
    * @var string The content for the response
    */
   protected string $content = '';
+
+  /**
+   * @var array The terminators for the response
+   */
+  protected array $terminators = [];
 
 
   /**
@@ -100,6 +105,20 @@ class Response
   }
 
   /**
+   * Add a terminator to the response
+   *
+   * This method adds a terminator to the response. A terminator is a callback that is executed after the response is sent.
+   *
+   * @param callable $callback The callback to execute after the response is sent
+   * @return self The new Response object
+   */
+  public function addTerminator(callable $callback): self
+  {
+    $this->terminators[] = $callback;
+    return $this;
+  }
+
+  /**
    * Send the response and exit the script
    *
    * This method sends the response and exits the script. It sets the HTTP status code, headers, and content.
@@ -110,11 +129,28 @@ class Response
    */
   public function send(): void
   {
+    if (session_status() === PHP_SESSION_ACTIVE) {
+      session_write_close();
+    }
+
+    if (headers_sent($file, $line)) {
+      trigger_error("Cannot send headers, output already started at $file:$line", E_USER_WARNING);
+      return;
+    }
+
     http_response_code($this->status);
+
     foreach ($this->headers as $name => $value) {
       header("$name: $value");
     }
+
     echo $this->content;
+
+    foreach ($this->terminators as $callback) {
+      $callback();
+    }
+
+    exit();
   }
 
   /**
@@ -138,11 +174,19 @@ class Response
     }
 
     // Flash any other session data
-    foreach ($sessionData as $key => $value) {
-      if ($key !== 'old') {
-        Session::flash($key, $value);
+    foreach ($sessionData as $k => $v) {
+      if ($k === 'old') {
+        Session::flashOld($v);
+      } else {
+        Session::flash($k, $v);
       }
     }
+
+    // **flush & close** the session so flashes persist
+    if (session_status() === PHP_SESSION_ACTIVE) {
+      session_write_close();
+    }
+
 
     return $response;
   }
@@ -156,7 +200,6 @@ class Response
    */
   public function with(string $key, string $value): self
   {
-
     Session::flash($key, $value);
     return $this;
   }
@@ -185,6 +228,16 @@ class Response
   public static function noContent(): self
   {
     return new static('', 204);
+  }
+
+  /**
+   * Get the content of the response
+   *
+   * @return string The content of the response
+   */
+  public function content(): string
+  {
+    return $this->content;
   }
 
   /**
@@ -220,11 +273,59 @@ class Response
    * @param callable $callback The callback function to stream
    * @param int $status The HTTP status code to set
    * @param array $headers The headers to send
+   * @return void
+   */
+  public static function streamed(callable $callback, int $status = self::OK, array $headers = []): void
+  {
+    http_response_code($status);
+    foreach ($headers as $name => $value) {
+      header("$name: $value");
+    }
+
+    $callback();
+    exit;
+  }
+
+  /**
+   * Send a file for download and exit the script
+   *
+   * This method sends a file for download and exits the script.
+   *
+   * @param string $path The path to the file to send
+   * @param string $name The name of the file to send
    * @return self The new Response object
    */
-  public static function stream(callable $callback, int $status = self::OK, array $headers = []): self
+  public static function download(string $path, ?string $name = null): self
   {
-    return new static($callback(), $status, $headers);
+    return self::file($path, $name, [
+      'Content-Disposition' => 'attachment; filename="' . ($name ?? basename($path)) . '"'
+    ]);
+  }
+
+  /**
+   * Send binary data and exit the script
+   *
+   * This method sends binary data and exits the script.
+   *
+   * @param string $data The binary data to send
+   * @param string $mime The MIME type of the data
+   * @return self The new Response object
+   */
+  public static function binary(string $data, string $mime = 'application/octet-stream'): self
+  {
+    return new static($data, self::OK, ['Content-Type' => $mime]);
+  }
+
+  /**
+   * Get the HTTP status code
+   *
+   * Returns the HTTP status code for the response.
+   *
+   * @return int The HTTP status code
+   */
+  public function getStatus(): int
+  {
+    return $this->status;
   }
 
   /**
@@ -239,6 +340,30 @@ class Response
   public function setHeader(string $name, string $value): self
   {
     $this->headers[$name] = $value;
+    return $this;
+  }
+
+  /**
+   * Add a header to the response
+   *
+   * This method adds a header to the response. If the header already exists, it appends the value.
+   *
+   * @param string $name The name of the header
+   * @param string $value The value of the header
+   * @return self The new Response object
+   */
+  public function addHeader(string $name, string $value): self
+  {
+    if (isset($this->headers[$name])) {
+      if (is_array($this->headers[$name])) {
+        $this->headers[$name][] = $value;
+      } else {
+        $this->headers[$name] = [$this->headers[$name], $value];
+      }
+    } else {
+      $this->headers[$name] = $value;
+    }
+
     return $this;
   }
 

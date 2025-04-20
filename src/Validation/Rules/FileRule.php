@@ -21,6 +21,6 @@ class FileRule implements Rule
 
   public function message(string $field): string
   {
-    return "The :attribute field must be a valid file.";
+    return "The {$field} must be a valid file.";
   }
 }

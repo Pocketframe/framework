@@ -11,47 +11,97 @@ use Throwable;
 
 class Handler implements ExceptionHandlerInterface
 {
-  protected $logger;
-  protected $viewPath;
+  protected Logger $logger;
+  protected ?string $viewPath;
 
   public function __construct(Logger $logger)
   {
     $this->logger = $logger;
-    $this->viewPath = Container::getInstance()->get('viewPath');
+
+    $container = Container::getInstance()->get('viewPath');
+    if (!$container) {
+      throw new \RuntimeException('View path not set in the container.');
+    }
   }
 
-  public function handle(Throwable $e): bool
+  public function handle(Throwable $e): void
   {
-    // Log the error
-    $this->logger->log($e);
+    $errorId = uniqid('err_', true);
+    $statusCode = $this->normalizeStatusCode((int) $e->getCode());
 
-    // Force code=500 if the exception code is 0 or outside the 400–599 range
-    $statusCode = (int)$e->getCode();
-    if ($statusCode < 100 || $statusCode > 599) {
-      $statusCode = 500;
+    // Log with context
+    $this->logger->log($e, [
+      'id' => $errorId,
+      'request' => $this->getRequestContext()
+    ]);
+
+    if ($this->expectsJson()) {
+      $this->sendJsonResponse($e, $statusCode, $errorId);
+    } else {
+      $this->sendHtmlResponse($e, $statusCode, $errorId);
     }
+  }
+
+  protected function sendHtmlResponse(Throwable $e, int $statusCode, string $errorId): void
+  {
+    // Clear all output buffers
+    while (ob_get_level() > 0) {
+      ob_end_clean();
+    }
+
+    // Start new output buffer
+    ob_start();
 
     try {
       $file = $this->getErrorView($statusCode);
-      $content = View::renderFile($file, $this->getErrorData($e));
-      $response = new Response($content, $statusCode, ['Content-Type' => 'text/html']);
+      $data = $this->getErrorData($e) + ['error_id' => $errorId];
+      $content = View::renderFile($file, $data);
     } catch (Throwable $fallbackError) {
-      // Fallback to a simple error message if rendering fails
-      $response = new Response(
-        "<h1>{$statusCode} Error</h1><p>{$e->getMessage()}</p>",
-        $statusCode,
-        ['Content-Type' => 'text/html']
-      );
+      $content = "<h1>{$statusCode} Error</h1><p>{$e->getMessage()}</p><small>ID: {$errorId}</small>";
     }
 
-    // Send the response
-    $response->send();
-    return true;
+    // Clean and send
+    ob_end_clean();
+    (new Response($content, $statusCode, [
+      'Content-Type' => 'text/html',
+      'Cache-Control' => 'no-store'
+    ]))->send();
+  }
+
+  protected function sendJsonResponse(Throwable $e, int $statusCode, string $errorId): void
+  {
+    $response = [
+      'error' => true,
+      'message' => $e->getMessage(),
+      'id' => $errorId,
+    ];
+
+    if (env('APP_DEBUG') === 'true') {
+      $response += [
+        'exception' => get_class($e),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+        'trace' => $this->formatStackTrace($e->getTrace()),
+      ];
+    }
+
+    (new Response(json_encode($response, JSON_PRETTY_PRINT), $statusCode, [
+      'Content-Type' => 'application/json'
+    ]))->send();
+  }
+
+  protected function normalizeStatusCode(int $code): int
+  {
+    return ($code >= 100 && $code <= 599) ? $code : 500;
+  }
+
+  protected function expectsJson(): bool
+  {
+    return str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json');
   }
 
   protected function getErrorView(int $statusCode): string
   {
-    // Point to your vendor error file
     return __DIR__ . '/../resources/views/errors/' . $statusCode . '.view.php';
   }
 
@@ -66,7 +116,7 @@ class Handler implements ExceptionHandlerInterface
       'message' => $e->getMessage(),
       'file' => $sourceInfo['file'],
       'line' => $sourceInfo['line'],
-      'source_metadata' => $sourceInfo['metadata']
+      'source_metadata' => $sourceInfo['metadata'],
     ];
 
     if (env('APP_DEBUG') === 'true') {
@@ -80,14 +130,12 @@ class Handler implements ExceptionHandlerInterface
       $data += [
         'exception' => get_class($e),
         'trace' => $this->formatStackTrace($e->getTrace()),
-        'request' => $this->getRequestContext()
+        'request' => $this->getRequestContext(),
       ];
     }
 
     return $data;
   }
-
-
 
   private function resolveSourceMapping(string $file, int $line): array
   {
@@ -96,14 +144,17 @@ class Handler implements ExceptionHandlerInterface
     $originalLine = $line;
     $lineOffset = 0;
 
-    if (strpos($file, '/store/framework/views/') !== false) {
-      $sourceMapping = $this->parseCompiledViewMetadata($file);
-
-      if ($sourceMapping) {
-        $originalFile = $sourceMapping['source_file'];
-        $lineOffset = $sourceMapping['line_offset'];
+    if (str_contains($file, '/store/framework/views/')) {
+      $mapping = $this->parseCompiledViewMetadata($file);
+      if ($mapping) {
+        $originalFile = $mapping['source_file'];
+        $lineOffset = $mapping['line_offset'];
         $originalLine = max(1, $line - $lineOffset);
-        $metadata = ['compiled_path' => $file];
+        $metadata = [
+          'compiled_path' => $file,
+          'source_file' => $originalFile,
+          'line_offset' => $lineOffset
+        ];
       }
     }
 
@@ -122,78 +173,70 @@ class Handler implements ExceptionHandlerInterface
     if (!$lines) return null;
 
     // Look for source mapping comment in first 5 lines
-    foreach (array_slice($lines, 0, 5) as $i => $line) {
-      if (preg_match('/\/\*\s?Source:\s?(.+?\.view\.php).*?\*\//', $line, $matches)) {
-        $sourceFile = $matches[1];
-        if (file_exists($sourceFile)) {
-          return [
-            'source_file' => $sourceFile,
-            'line_offset' => $i + 1  // Lines are 0-indexed in array
-          ];
-        }
+    foreach (array_slice($lines, 0, 5) as $line) {
+      if (preg_match('/\/\*\s?Source:\s?(.+?\.view\.php).*?line_offset:\s*(\d+)/', $line, $matches)) {
+        return [
+          'source_file' => trim($matches[1]),
+          'line_offset' => (int)$matches[2]
+        ];
       }
     }
     return null;
   }
 
-  private function getCodeSnippet(string $filePath, int $errorLine): array
+  private function getCodeSnippet(string $filePath, int $errorLine, int $originalLine, int $lineOffset): array
   {
-    $defaults = [
+    $adjustedLine = max(1, $originalLine - $lineOffset);
+
+    $default = [
       'file' => $filePath,
       'line_start' => 0,
       'line_end' => 0,
-      'error_line' => $errorLine,
-      'original_line' => $errorLine,
+      'error_line' => $adjustedLine, // Use adjusted line here
+      'original_line' => $originalLine,
       'content' => [],
-      'context' => ['is_compiled' => false]
+      'context' => ['is_compiled' => str_contains($filePath, '/store/framework/views/')]
     ];
 
     if (!file_exists($filePath)) {
-      return $defaults;
+      return $default;
     }
 
-    try {
-      $lines = @file($filePath) ?: [];
-      $lineCount = count($lines);
+    $lines = @file($filePath) ?: [];
+    $count = count($lines);
 
-      if ($lineCount === 0 || $errorLine < 1 || $errorLine > $lineCount) {
-        return $defaults;
-      }
-
-      // Convert to 0-based index
-      $errorIndex = $errorLine - 1;
-
-      // Adjust for chained method errors
-      $adjustedIndex = $this->findActualErrorLine($lines, $errorIndex);
-      $start = max(0, $adjustedIndex - 2);
-      $end = min($lineCount - 1, $adjustedIndex + 2);
-
-      return [
-        'file' => $filePath,
-        'line_start' => $start + 1,
-        'line_end' => $end + 1,
-        'error_line' => $adjustedIndex + 1,
-        'original_line' => $errorLine,
-        'content' => array_slice($lines, $start, $end - $start + 1),
-        'context' => [
-          'is_compiled' => str_contains($filePath, '/store/framework/views/')
-        ]
-      ];
-    } catch (\Throwable $e) {
-      return $defaults;
+    // Use adjusted line for calculations
+    if ($adjustedLine < 1 || $adjustedLine > $count) {
+      return $default;
     }
+
+    $index = $adjustedLine - 1;
+    $actual = $this->findActualErrorLine($lines, $index);
+
+    $start = max(0, $actual - 2);
+    $end = min($count - 1, $actual + 2);
+
+    return [
+      'file' => $filePath,
+      'line_start' => $start + 1,
+      'line_end' => $end + 1,
+      'error_line' => $adjustedLine,
+      'original_line' => $originalLine,
+      'content' => array_slice($lines, $start, $end - $start + 1),
+      'context' => ['is_compiled' => str_contains($filePath, '/store/framework/views/')]
+    ];
   }
 
-  private function findActualErrorLine(array $lines, int $reportedIndex): int
+  private function findActualErrorLine(array $lines, int $index): int
   {
     $patterns = [
-      '/->\w+\(/',       // Method chaining
-      '/\b(fn|function)\b/', // Arrow functions
-      '/\[.*\]\s*=>/',   // Array mappings
-      '/\b(return|throw|new)\b/' // Control keywords
+      '/->\w+\(/',
+      '/\b(fn|function)\b/',
+      '/\[.*\]\s*=>/',
+      '/\b(return|throw|new)\b/'
     ];
 
-    for ($i = $reportedIndex; $i >= 0; $i--) {
+    for ($i = $index; $i >= 0; $i--) {
       $line = trim($lines[$i] ?? '');
       if ($line === '') continue;
 
@@ -204,39 +247,26 @@ class Handler implements ExceptionHandlerInterface
       }
     }
 
-    return $reportedIndex;
-  }
-
-
-  private function getFileContext(string $filePath): array
-  {
-    return [
-      'last_modified' => date('Y-m-d H:i:s', filemtime($filePath)),
-      'size' => filesize($filePath),
-      'is_compiled' => strpos($filePath, '/store/framework/views/') !== false
-    ];
+    return $index;
   }
 
   private function formatStackTrace(array $trace): array
   {
-    return array_map(function ($item) {
-      return [
-        'file' => $item['file'] ?? null,
-        'line' => $item['line'] ?? null,
-        'call' => $this->formatCall($item),
-        'source' => isset($item['file']) ? $this->getCodeSnippet($item['file'], $item['line']) : null
-      ];
-    }, $trace);
+    $limit = (int) env('TRACE_DEPTH', 15);
+    return array_map(fn($item) => [
+      'file' => $item['file'] ?? null,
+      'line' => $item['line'] ?? null,
+      'call' => $this->formatCall($item),
+      'source' => isset($item['file']) ? $this->getCodeSnippet($item['file'], $item['line'], $item['line'], 0) : null
+    ], array_slice($trace, 0, $limit));
   }
 
   private function formatCall(array $item): string
   {
-    $call = '';
-    if (isset($item['class'])) {
-      $call .= $item['class'] . $item['type'];
-    }
-    $call .= $item['function'] . '()';
-    return $call;
+    $call = $item['class'] ?? '';
+    $call .= $item['type'] ?? '';
+    $call .= $item['function'] ?? '';
+    return $call . '()';
   }
 
   private function getRequestContext(): array

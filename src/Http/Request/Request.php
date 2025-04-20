@@ -2,7 +2,7 @@
 
 namespace Pocketframe\Http\Request;
 
-use Pocketframe\Sessions\Session;
+use Pocketframe\Sessions\Mask\Session;
 
 class Request
 {
@@ -280,11 +280,12 @@ class Request
    *
    * Returns the previous URL of the current request.
    *
+   * @param string $default The default URL to return if the previous URL is not set
    * @return string The previous URL of the current request
    */
-  public function previous(): string
+  public function previous(string $default = '/'): string
   {
-    return $_SERVER['HTTP_REFERER'] ?? '/';
+    return $_SERVER['HTTP_REFERER'] ?? $default;
   }
 
   /**
@@ -356,12 +357,42 @@ class Request
    *
    * @return Session The session object
    */
-  public function session()
+  public function session(): Session
   {
-    if (!isset($_SESSION)) {
+    // Ensure the session manager is started
+    Session::start();
+
+    // If the session is not already started, start it
+    if (session_status() === PHP_SESSION_NONE) {
       session_start();
     }
+
+    // Return the session object
     return new Session($this->sessionData);
+  }
+  /**
+   * Get the request path
+   *
+   * Returns the request path from the server variables.
+   *
+   * @return string The request path
+   */
+  public function path(): string
+  {
+    return $_SERVER['REQUEST_URI'] ?? '/';
+  }
+  /**
+   * Get the request path segments
+   *
+   * Returns an array of path segments from the request URI.
+   *
+   * @return array<string> The request path segments
+   */
+  public function segments(): array
+  {
+    $path = $this->path();
+    $segments = explode('/', trim($path, '/'));
+    return array_filter($segments);
   }
 
   /**

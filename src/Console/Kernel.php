@@ -52,6 +52,10 @@ class Kernel
         'class' => \Pocketframe\Console\Commands\CreateTableScriptCommand::class,
         'desc'  => 'Create a new table script'
       ],
+      'schema:session-table' => [
+        'class' => \Pocketframe\Console\Commands\CreateSessionTableCommand::class,
+        'desc'  => 'Create a new session table script'
+      ],
       'schema' => [
         'class' => \Pocketframe\Console\Commands\SchemaCommand::class,
         'desc'  => 'Manage database schemas (apply, rollback, fresh)'

@@ -22,6 +22,6 @@ class ImageRule implements Rule
 
   public function message(string $field): string
   {
-    return "The :attribute field must be a valid image.";
+    return "The {$field} must be a valid image.";
   }
 }

@@ -13,6 +13,6 @@ class EmailRule implements Rule
 
   public function message(string $field): string
   {
-    return "The :attribute field must be a valid email address.";
+    return "The {$field} field must be a valid email address.";
   }
 }

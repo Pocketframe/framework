@@ -18,19 +18,25 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       line-height: 1.6;
       margin: 0;
-      padding: 2rem;
+      padding: 0;
+      min-height: 100vh;
       background-color: var(--color-error-bg);
       color: var(--color-text);
     }
 
     .error-container {
       max-width: 80rem;
-      margin: 2rem auto;
-      background: white;
+      margin: 0 auto;
+      min-height: 100vh;
       border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      overflow: hidden;
+      padding: 2rem 0;
     }
+
+    .error-content {
+      flex: 1;
+      padding: 1.5rem;
+    }
+
 
     .error-header {
       padding: 1.5rem;
@@ -42,10 +48,6 @@
       margin: 0;
       font-size: 1.5rem;
       font-weight: 600;
-    }
-
-    .error-content {
-      padding: 1.5rem;
     }
 
     .code-snippet {
@@ -153,7 +155,6 @@
       <p class="error-message-title">
         <?= htmlspecialchars($message) ?>
       </p>
-
 
       <?php if (config('app.debug')): ?>
         <?php if (!empty($snippet)): ?>
