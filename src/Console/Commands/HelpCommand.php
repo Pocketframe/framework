@@ -35,11 +35,8 @@ class HelpCommand implements CommandInterface
       ?: trim(shell_exec('git describe --tags --abbrev=0 2>/dev/null'))
       ?: (file_exists(BASE_PATH . '/VERSION') ? trim(file_get_contents(BASE_PATH . '/VERSION')) : 'Unknown');
 
-    // Enhanced framework description.
-    $description = "Pocketframe is a lightweight yet powerful PHP framework designed to simplify modern web application development. With its intuitive structure, elegant syntax, and modular approach, Pocketframe helps developers build scalable, high-performance applications effortlessly.";
-
     // Documentation URL.
-    $documentationUrl = "https://github.com/Pocketframe/pocketframe-application?tab=readme-ov-file#introduction";
+    $documentationUrl = "https://pocketframe.github.io/docs/";
 
     // Display the framework information similar to Laravel's about command.
     echo "\n\n";
@@ -47,8 +44,6 @@ class HelpCommand implements CommandInterface
     echo "{$blue}About Application{$reset}\n\n";
 
     echo "{$green}Version:         {$reset} {$version}\n";
-    echo "\n";
-    echo "{$green}Description:     {$reset} {$description}\n";
     echo "\n";
     echo "{$green}Documentation:   {$reset} {$documentationUrl}\n";
     echo "\n";
