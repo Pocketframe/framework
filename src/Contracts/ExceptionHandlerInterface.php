@@ -6,5 +6,5 @@ use Throwable;
 
 interface ExceptionHandlerInterface
 {
-    public function handle(Throwable $e): bool;
+  public function handle(Throwable $e): void;
 }
