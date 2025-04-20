@@ -1,0 +1,29 @@
+<?php
+
+namespace Database\Schemas;
+
+use Pocketframe\PocketORM\Schema\TableScript;
+use Pocketframe\PocketORM\Schema\TableBuilder;
+
+class {{className}} extends TableScript {
+    public function up(): void {
+        // For simple alterations, you could keep your existing method:
+        // $this->alterTable('{{tableName}}', function(TableBuilder $table) {
+        //     // simple changes...
+        // });
+
+        // For complex alterations using DBAL:
+        $this->alterTableWithDbal('{{tableName}}', function(TableBuilder $table) {
+            // Example: add a new column only if it does not exist.
+            // Note: Ensure your blueprint methods are extended to indicate the changes you want.
+            $table->string('example_column', 255);
+        });
+    }
+
+    public function down(): void {
+        $this->alterTable('{{tableName}}', function(TableBuilder $table) {
+            // Provide a reverse operation—for example, drop the column:
+            // $table->dropColumn('example_column');
+        });
+    }
+}

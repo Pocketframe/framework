@@ -286,9 +286,9 @@ class TableBuilder
    * @param string $name The name of the column.
    * @return self
    */
-  public function integer(string $name): self
+  public function integer(string $name, int $length = 11): self
   {
-    $this->columns[] = "`{$name}` INTEGER";
+    $this->columns[] = "`{$name}` INTEGER({$length})";
     $this->lastColumnName = $name;
     return $this;
   }

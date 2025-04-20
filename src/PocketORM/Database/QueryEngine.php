@@ -2,8 +2,11 @@
 
 namespace Pocketframe\PocketORM\Database;
 
+use Closure;
 use PDO;
 use PDOException;
+use Pocketframe\Database\CursorPagination;
+use Pocketframe\Database\Pagination;
 use Pocketframe\PocketORM\Concerns\DeepFetch;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\DataSet;
@@ -29,6 +32,7 @@ class QueryEngine
   protected ?string $keyByColumn = null;
   protected bool $withTrashed    = false;
   protected bool $onlyTrashed    = false;
+  protected ?int $offset         = null;
   private ?string $entityClass;
 
   /**
@@ -81,6 +85,15 @@ class QueryEngine
   }
   // SELECT METHODS
 
+  /**
+   * Add columns to SELECT clause
+   *
+   * @param array $columns Array of column names
+   * @return self
+   *
+   * @example ->select(['id', 'name', 'email'])
+   * @example ->select(['*'])
+   */
   public function select(array $columns): self
   {
     $this->select = $columns;
@@ -100,6 +113,63 @@ class QueryEngine
   {
     $this->select = [];
     $this->rawSelects[] = $expression;
+    return $this;
+  }
+
+  /**
+   * Add a subquery select clause
+   *
+   * @param string $alias Alias for the subquery result
+   * @param Closure|QueryEngine $query Subquery instance or closure
+   * @return self
+   *
+   * @example selectSub('total_posts', function($q) {
+   *     $q->from('posts')->selectRaw('COUNT(*)')->whereColumn('user_id', 'users.id');
+   * })
+   * SELECT (SELECT COUNT(*) FROM posts WHERE user_id = users.id) AS total_posts ...
+   */
+  public function selectSub(string $alias, $query): self
+  {
+    if ($query instanceof Closure) {
+      $sub = new self($this->table);
+      $query($sub);
+    } elseif ($query instanceof self) {
+      $sub = $query;
+    } else {
+      throw new \InvalidArgumentException('Subquery must be a Closure or QueryEngine instance');
+    }
+
+    $this->select[] = "({$sub->toSql()}) AS {$alias}";
+    $this->bindings = array_merge($this->bindings, $sub->getBindings());
+    return $this;
+  }
+
+  /**
+   * Add a subquery from clause
+   *
+   * @param string $alias Table alias
+   * @param Closure|QueryEngine $query Subquery instance or closure
+   * @return self
+   *
+   * @example fromSub('user_stats', function($q) {
+   *     $q->from('users')
+   *       ->select(['id', 'posts_count' => fn($q) => $q->from('posts')->whereColumn('user_id', 'users.id')->selectRaw('COUNT(*)')]);
+   * })
+   * SELECT * FROM (SELECT id, (SELECT COUNT(*) FROM posts WHERE user_id = users.id) AS posts_count FROM users) AS user_stats
+   */
+  public function fromSub(string $alias, $query): self
+  {
+    if ($query instanceof Closure) {
+      $sub = new self($this->table);
+      $query($sub);
+    } elseif ($query instanceof self) {
+      $sub = $query;
+    } else {
+      throw new \InvalidArgumentException('Subquery must be a Closure or QueryEngine instance');
+    }
+
+    $this->table = "({$sub->toSql()}) AS {$alias}";
+    $this->bindings = array_merge($sub->getBindings(), $this->bindings);
     return $this;
   }
 
@@ -328,6 +398,820 @@ class QueryEngine
     return $this->whereColumn($first, $operatorOrSecond, $secondOrNone, 'OR');
   }
 
+  /**
+   * Add a WHERE JSON_CONTAINS condition
+   *
+   * Add a WHERE JSON_CONTAINS condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereContainsJson('preferences->notifications', 'email')
+   * @example ->orWhereContainsJson('preferences->alerts', 'sms')
+   */
+  public function whereContainsJson(string $column, $value, string $boolean = 'AND'): self
+  {
+    if (is_array($value)) {
+      return $this->handleJsonArrayContains($column, $value, $boolean);
+    }
+
+    $this->wheres[] = [
+      'type' => 'json_contains',
+      'column' => $column,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->addBinding($value);
+
+    return $this;
+  }
+
+  protected function handleJsonArrayContains(string $column, array $values, string $boolean): self
+  {
+    $this->wheres[] = [
+      'type' => 'json_contains_array',
+      'column' => $column,
+      'values' => $values,
+      'boolean' => $boolean,
+    ];
+
+    // Add each value as separate binding
+    foreach ($values as $val) {
+      $this->addBinding($val);
+    }
+
+    return $this;
+  }
+
+  /**
+   * Add value(s) to the query bindings
+   *
+   * @param mixed $value Value or array of values to bind
+   * @return void
+   */
+  protected function addBinding($value): void
+  {
+    if (is_array($value)) {
+      $this->bindings = array_merge($this->bindings, array_values($value));
+      return;
+    }
+
+    $this->bindings[] = $value;
+  }
+
+  /**
+   * Add an OR WHERE JSON_CONTAINS condition
+   *
+   * Add an OR WHERE JSON_CONTAINS condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @return self
+   *
+   * @example ->orWhereContainsJson('tags', 'tag1')
+   */
+  public function orWhereContainsJson(string $column, $value): self
+  {
+    return $this->whereContainsJson($column, $value, 'OR');
+  }
+
+  /**
+   * Add a WHERE JSON_CONTAINS condition
+   *
+   * Add a WHERE JSON_CONTAINS condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereAny('tags', '["sale","clearance"]')
+   * @example ->orWhereAny('categories', 'electronics')
+   */
+  public function whereAny(string $column, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'json_any',
+      'column' => $column,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE JSON_CONTAINS condition
+   *
+   * Add an OR WHERE JSON_CONTAINS condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @return self
+   *
+   * @example ->orWhereAny('tags', 'tag1')
+   */
+  public function orWhereAny(string $column, $value): self
+  {
+    return $this->whereAny($column, $value, 'OR');
+  }
+
+  /**
+   * Add a WHERE JSON_CONTAINS condition
+   *
+   * Add a WHERE JSON_CONTAINS condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereAll('permissions', '["read","write"]')
+   * @example ->orWhereAll('roles', '["admin"]')
+   */
+  public function whereAll(string $column, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'json_all',
+      'column' => $column,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE JSON_CONTAINS condition
+   *
+   * Add an OR WHERE JSON_CONTAINS condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @return self
+   *
+   * @example ->orWhereAll('tags', 'tag1')
+   */
+  public function orWhereAll(string $column, $value): self
+  {
+    return $this->whereAll($column, $value, 'OR');
+  }
+
+  /**
+   * Add a WHERE JSON_CONTAINS condition
+   *
+   * Add a WHERE JSON_CONTAINS condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereNone('tags', 'obsolete')
+   * @example ->orWhereNone('categories', 'discontinued')
+   */
+  public function whereNone(string $column, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'json_none',
+      'column' => $column,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE JSON_CONTAINS condition
+   *
+   * Add an OR WHERE JSON_CONTAINS condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @return self
+   *
+   * @example ->orWhereNone('tags', 'tag1')
+   */
+  public function orWhereNone(string $column, $value): self
+  {
+    return $this->whereNone($column, $value, 'OR');
+  }
+
+  /**
+   * Add a WHERE LIKE condition
+   *
+   * Add a WHERE LIKE condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $value Value to compare
+   * @param bool $caseSensitive Case sensitivity flag
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereLike('username', 'Admin', true)
+   * @example ->orWhereLike('filename', '.PDF', true)
+   *
+   *  Case-insensitive search
+   * @example ->whereNotLike('email', '%@spam.com')
+   * @example ->orWhereNotLike('title', '%test%', false)
+   */
+  public function whereLike(string $column, string $value, bool $caseSensitive = false, string $boolean = 'AND'): self
+  {
+    $operator = $caseSensitive ? 'LIKE BINARY' : 'LIKE';
+    $this->wheres[] = [
+      'type' => 'basic',
+      'column' => $column,
+      'operator' => $operator,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE LIKE condition
+   *
+   * Add an OR WHERE LIKE condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $value Value to compare
+   * @param bool $caseSensitive Case sensitivity flag
+   * @return self
+   *
+   * @example ->orWhereLike('name', 'John')
+   */
+  public function orWhereLike(string $column, string $value, bool $caseSensitive = false): self
+  {
+    return $this->whereLike($column, $value, $caseSensitive, 'OR');
+  }
+
+  /**
+   * Add a WHERE NOT LIKE condition
+   *
+   * Add a WHERE NOT LIKE condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $value Value to compare
+   * @param bool $caseSensitive Case sensitivity flag
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereNotLike('name', 'John')
+   * @example ->whereNotLike('name', 'John', 'OR')
+   */
+  public function whereNotLike(string $column, string $value, bool $caseSensitive = false, string $boolean = 'AND'): self
+  {
+    $operator = $caseSensitive ? 'NOT LIKE BINARY' : 'NOT LIKE';
+    $this->wheres[] = [
+      'type' => 'basic',
+      'column' => $column,
+      'operator' => $operator,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE NOT LIKE condition
+   *
+   * Add an OR WHERE NOT LIKE condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $value Value to compare
+   * @param bool $caseSensitive Case sensitivity flag
+   * @return self
+   *
+   * @example ->orWhereNotLike('name', 'John')
+   */
+  public function orWhereNotLike(string $column, string $value, bool $caseSensitive = false): self
+  {
+    return $this->whereNotLike($column, $value, $caseSensitive, 'OR');
+  }
+
+  /**
+   * Add a WHERE NOT IN condition
+   *
+   * Add a WHERE NOT IN condition to the query.
+   *
+   * @param string $column Column name
+   * @param array $values Array of values to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereNotIn('status', ['banned', 'suspended'])
+   * @example ->orWhereNotIn('category_id', [5, 9])
+   */
+  public function whereNotIn(string $column, array $values, string $boolean = 'AND'): self
+  {
+    return $this->whereIn($column, $values, $boolean, true);
+  }
+
+  /**
+   * Add an OR WHERE NOT IN condition
+   *
+   * Add an OR WHERE NOT IN condition to the query.
+   *
+   * @param string $column Column name
+   * @param array $values Array of values to compare
+   * @return self
+   *
+   * @example ->orWhereNotIn('id', [1, 2, 3])
+   */
+  public function orWhereNotIn(string $column, array $values): self
+  {
+    return $this->whereIn($column, $values, 'OR', true);
+  }
+
+  /**
+   * Add a WHERE NOT condition
+   *
+   * Add a WHERE NOT condition to the query.
+   *
+   * @param Closure $callback Callback function to define the nested query
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereNot(function ($query) {
+   *   $query->where('name', 'John');
+   * })
+   * @example ->whereNot(function($q) {
+   *   $q->where('role', 'admin')
+   *     ->where('email_verified', 0);
+   * })
+   */
+  public function whereNot(Closure $callback, string $boolean = 'AND'): self
+  {
+    $query = new self($this->table);
+    $callback($query);
+    $this->wheres[] = [
+      'type' => 'nested',
+      'query' => $query,
+      'boolean' => $boolean,
+      'not' => true,
+    ];
+    $this->bindings = array_merge($this->bindings, $query->bindings);
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE NOT condition
+   *
+   * Add an OR WHERE NOT condition to the query.
+   *
+   * @param Closure $callback Callback function to define the nested query
+   * @return self
+   *
+   * @example ->orWhereNot(function ($query) {
+   *   $query->where('name', 'John');
+   * })
+   */
+  public function orWhereNot(Closure $callback): self
+  {
+    return $this->whereNot($callback, 'OR');
+  }
+
+  /**
+   * Add a WHERE BETWEEN condition
+   *
+   * Add a WHERE BETWEEN condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $start Start value
+   * @param mixed $end End value
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @param bool $not Whether to use NOT BETWEEN
+   * @return self
+   *
+   * value range
+   * @example ->whereBetween('price', 100, 500)
+   * @example ->orWhereBetween('created_at', '2023-01-01', '2023-12-31')
+   */
+  public function whereBetween(string $column, $start, $end, string $boolean = 'AND', bool $not = false): self
+  {
+    $this->wheres[] = [
+      'type' => 'between',
+      'column' => $column,
+      'start' => $start,
+      'end' => $end,
+      'boolean' => $boolean,
+      'not' => $not,
+    ];
+    $this->bindings[] = $start;
+    $this->bindings[] = $end;
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE BETWEEN condition
+   *
+   * Add an OR WHERE BETWEEN condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $start Start value
+   * @param mixed $end End value
+   * @return self
+   *
+   * @example ->orWhereBetween('id', 1, 10)
+   */
+  public function orWhereBetween(string $column, $start, $end): self
+  {
+    return $this->whereBetween($column, $start, $end, 'OR');
+  }
+
+  /**
+   * Add a WHERE NOT BETWEEN condition
+   *
+   * Add a WHERE NOT BETWEEN condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $start Start value
+   * @param mixed $end End value
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereNotBetween('age', 13, 20)
+   * @example ->orWhereNotBetween('rating', 1, 3)
+   */
+  public function whereNotBetween(string $column, $start, $end, string $boolean = 'AND'): self
+  {
+    return $this->whereBetween($column, $start, $end, $boolean, true);
+  }
+
+  /**
+   * Add an OR WHERE NOT BETWEEN condition
+   *
+   * Add an OR WHERE NOT BETWEEN condition to the query.
+   *
+   * @param string $column Column name
+   * @param mixed $start Start value
+   * @param mixed $end End value
+   * @return self
+   *
+   * @example ->orWhereNotBetween('id', 1, 10)
+   */
+  public function orWhereNotBetween(string $column, $start, $end): self
+  {
+    return $this->whereBetween($column, $start, $end, 'OR', true);
+  }
+
+  /**
+   * Add a WHERE BETWEEN condition using column names
+   *
+   * Add a WHERE BETWEEN condition to the query using column names.
+   *
+   * @param string $column Column name
+   * @param string $startColumn Start column name
+   * @param string $endColumn End column name
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @param bool $not Whether to use NOT BETWEEN
+   * @return self
+   *
+   * column range
+   * @example ->whereBetweenColumn('event_date', 'start_date', 'end_date')
+   * @example ->orWhereBetweenColumn('temperature', 'min_temp', 'max_temp')
+   */
+  public function whereBetweenColumn(string $column, string $startColumn, string $endColumn, string $boolean = 'AND', bool $not = false): self
+  {
+    $this->wheres[] = [
+      'type' => 'between_columns',
+      'column' => $column,
+      'start' => $startColumn,
+      'end' => $endColumn,
+      'boolean' => $boolean,
+      'not' => $not,
+    ];
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE BETWEEN condition using column names
+   *
+   * Add an OR WHERE BETWEEN condition to the query using column names.
+   *
+   * @param string $column Column name
+   * @param string $startColumn Start column name
+   * @param string $endColumn End column name
+   * @return self
+   *
+   * @example ->orWhereBetweenColumn('id', 'start_id', 'end_id')
+   */
+  public function orWhereBetweenColumn(string $column, string $startColumn, string $endColumn): self
+  {
+    return $this->whereBetweenColumn($column, $startColumn, $endColumn, 'OR');
+  }
+
+  /**
+   * Add a WHERE DATE condition
+   *
+   * Add a WHERE DATE condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $operator Comparison operator
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereDate('created_at', '=', '2023-05-15')
+   * @example ->whereMonth('birthday', '=', 12) // December birthdays
+   * @example ->whereDay('event_date', '=', 25) // 25th of any month
+   * @example ->whereYear('published_at', '>', 2020)
+   * @example ->whereTime('log_time', '>', '18:00:00')
+   */
+  public function whereDate(string $column, string $operator, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'date',
+      'column' => $column,
+      'operator' => $operator,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add a WHERE MONTH condition
+   *
+   * Add a WHERE MONTH condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $operator Comparison operator
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereMonth('created_at', '=', 1)
+   * @example ->whereMonth('created_at', '=', 1, 'OR')
+   */
+  public function whereMonth(string $column, string $operator, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'month',
+      'column' => $column,
+      'operator' => $operator,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add a WHERE DAY condition
+   *
+   * Add a WHERE DAY condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $operator Comparison operator
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereDay('created_at', '=', 1)
+   * @example ->whereDay('created_at', '=', 1, 'OR')
+   */
+  public function whereDay(string $column, string $operator, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'day',
+      'column' => $column,
+      'operator' => $operator,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add a WHERE YEAR condition
+   *
+   * Add a WHERE YEAR condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $operator Comparison operator
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereYear('created_at', '=', 2023)
+   * @example ->whereYear('created_at', '=', 2023, 'OR')
+   */
+  public function whereYear(string $column, string $operator, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'year',
+      'column' => $column,
+      'operator' => $operator,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add a WHERE TIME condition
+   *
+   * Add a WHERE TIME condition to the query.
+   *
+   * @param string $column Column name
+   * @param string $operator Comparison operator
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereTime('created_at', '=', '12:00:00')
+   * @example ->whereTime('created_at', '=', '12:00:00', 'OR')
+   */
+  public function whereTime(string $column, string $operator, $value, string $boolean = 'AND'): self
+  {
+    $this->wheres[] = [
+      'type' => 'time',
+      'column' => $column,
+      'operator' => $operator,
+      'value' => $value,
+      'boolean' => $boolean,
+    ];
+    $this->bindings[] = $value;
+    return $this;
+  }
+
+  /**
+   * Add a WHERE condition for today
+   *
+   * Add a WHERE condition to the query for today.
+   *
+   * @param string $column Column name
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereToday('created_at') // Records from today
+   * @example ->whereYesterday('updated_at') // Updated yesterday
+   * @example ->whereTomorrow('event_date') // Events scheduled tomorrow
+   * @example ->whereNow('timestamp_col') // Exactly current datetime
+   * @example ->whereBefore('expiry_date', '2024-01-01')
+   * @example ->whereAfter('start_date', '2023-06-01')
+   */
+  public function whereToday(string $column, string $boolean = 'AND'): self
+  {
+    return $this->whereDate($column, '=', date('Y-m-d'), $boolean);
+  }
+
+  /**
+   * Add a WHERE condition for yesterday
+   *
+   * Add a WHERE condition to the query for yesterday.
+   *
+   * @param string $column Column name
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereYesterday('created_at')
+   * @example ->whereYesterday('created_at', 'OR')
+   */
+  public function whereYesterday(string $column, string $boolean = 'AND'): self
+  {
+    return $this->whereDate($column, '=', date('Y-m-d', strtotime('-1 day')), $boolean);
+  }
+
+  /**
+   * Add a WHERE condition for tomorrow
+   *
+   * Add a WHERE condition to the query for tomorrow.
+   *
+   * @param string $column Column name
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereTomorrow('created_at')
+   * @example ->whereTomorrow('created_at', 'OR')
+   */
+  public function whereTomorrow(string $column, string $boolean = 'AND'): self
+  {
+    return $this->whereDate($column, '=', date('Y-m-d', strtotime('+1 day')), $boolean);
+  }
+
+  /**
+   * Add a WHERE condition for the current time
+   *
+   * Add a WHERE condition to the query for the current time.
+   *
+   * @param string $column Column name
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereNow('created_at')
+   * @example ->whereNow('created_at', 'OR')
+   */
+  public function whereNow(string $column, string $boolean = 'AND'): self
+  {
+    return $this->where($column, '=', date('Y-m-d H:i:s'), $boolean);
+  }
+
+  /**
+   * Add a WHERE condition for a value before a given value
+   *
+   * Add a WHERE condition to the query for a value before a given value.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereBefore('created_at', '2023-01-01')
+   * @example ->whereBefore('created_at', '2023-01-01', 'OR')
+   */
+  public function whereBefore(string $column, $value, string $boolean = 'AND'): self
+  {
+    return $this->where($column, '<', $value, $boolean);
+  }
+
+  /**
+   * Add a WHERE condition for a value after a given value
+   *
+   * Add a WHERE condition to the query for a value after a given value.
+   *
+   * @param string $column Column name
+   * @param mixed $value Value to compare
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereAfter('created_at', '2023-01-01')
+   * @example ->whereAfter('created_at', '2023-01-01', 'OR')
+   */
+  public function whereAfter(string $column, $value, string $boolean = 'AND'): self
+  {
+    return $this->where($column, '>', $value, $boolean);
+  }
+
+  /**
+   * Add a WHERE group
+   *
+   * Add a WHERE group to the query.
+   *
+   * @param Closure $callback Callback function to define the group
+   * @param string $boolean Logical operator ('AND' or 'OR')
+   * @return self
+   *
+   * @example ->whereGroup(function ($query) {
+   *   $query->where('id', '>', 100)
+   *         ->orWhere('id', '<', 50);
+   * })
+   * @example ->whereGroup(function ($query) {
+   *   $query->where('id', '>', 100)
+   *         ->orWhere('id', '<', 50);
+   * }, 'OR')
+   *
+   * @example ->whereGroup(function($query) {
+   *   $query->where('status', 'active')
+   *     ->where('credit_score', '>', 700);
+   * }, 'AND')
+   * @example ->orWhereGroup(function($query) {
+   *   $query->where('legacy_user', 1)
+   *     ->whereNull('deleted_at');
+   * })
+   * WHERE (status = 'active' AND credit_score > 700)
+   * OR (legacy_user = 1 AND deleted_at IS NULL)
+   */
+  public function whereGroup(Closure $callback, string $boolean = 'AND'): self
+  {
+    $query = new self($this->table);
+    $callback($query);
+    $this->wheres[] = [
+      'type' => 'nested',
+      'query' => $query,
+      'boolean' => $boolean,
+    ];
+    $this->bindings = array_merge($this->bindings, $query->bindings);
+    return $this;
+  }
+
+  /**
+   * Add an OR WHERE group
+   *
+   * Add an OR WHERE group to the query.
+   *
+   * @param Closure $callback Callback function to define the group
+   * @return self
+   *
+   * @example ->orWhereGroup(function ($query) {
+   *   $query->where('id', '>', 100)
+   *         ->orWhere('id', '<', 50);
+   * })
+   */
+  public function orWhereGroup(Closure $callback): self
+  {
+    return $this->whereGroup($callback, 'OR');
+  }
+
   // JOIN METHODS
 
   /**
@@ -437,20 +1321,417 @@ class QueryEngine
   }
 
   /**
-   * Add a LIMIT condition
+   * Order by the latest created date
    *
-   * Add a LIMIT condition to the query.
-   *
-   * @param int $limit Number of rows to limit
+   * @param string|null $column Column to order by (default: created_at)
    * @return self
    *
-   * @example ->limit(10)
+   * @example latest() // ORDER BY created_at DESC
+   * @example latest('updated_at') // ORDER BY updated_at DESC
    */
-  public function limit(int $limit): self
+  public function latest(?string $column = null): self
   {
-    $this->limit = $limit;
+    $column = $column ?? 'created_at';
+    return $this->orderBy($column, 'DESC');
+  }
+
+  /**
+   * Order by the oldest created date
+   *
+   * @param string|null $column Column to order by (default: created_at)
+   * @return self
+   *
+   * @example oldest() // ORDER BY created_at ASC
+   * @example oldest('updated_at') // ORDER BY updated_at ASC
+   */
+  public function oldest(?string $column = null): self
+  {
+    $column = $column ?? 'created_at';
+    return $this->orderBy($column, 'ASC');
+  }
+
+  /**
+   * Order results randomly
+   *
+   * @return self
+   *
+   * @example randomOrder() // ORDER BY RAND()
+   */
+  public function randomOrder(): self
+  {
+    return $this->orderByRaw('RAND()');
+  }
+
+  /**
+   * Add a raw ORDER BY clause
+   *
+   * @param string $expression Raw SQL expression
+   * @return self
+   *
+   * @example ->orderByRaw('RAND()')
+   * @example ->orderByRaw('(score + bonus) DESC')
+   */
+  public function orderByRaw(string $expression): self
+  {
+    $this->orders[] = $expression;
     return $this;
   }
+
+
+  /**
+   * Set the limit and offset for the query (alias for limit/offset)
+   *
+   * @param int $limit Number of records to return
+   * @param int|null $offset Number of records to skip
+   * @return self
+   *
+   * @example limit(10, 5) // LIMIT 10 OFFSET 5
+   */
+  public function limit(int $limit, ?int $offset = null): self
+  {
+    $this->limit = $limit;
+    if ($offset !== null) {
+      $this->offset($offset);
+    }
+    return $this;
+  }
+
+  /**
+   * Alias for limit()
+   *
+   * @param int $limit Number of records to return
+   * @return self
+   */
+  public function take(int $limit): self
+  {
+    return $this->limit($limit);
+  }
+
+  /**
+   * Set the offset for the query
+   *
+   * @param int $offset Number of records to skip
+   * @return self
+   *
+   * @example offset(5) // OFFSET 5
+   */
+  public function offset(int $offset): self
+  {
+    $this->offset = $offset;
+    return $this;
+  }
+
+  /**
+   * Alias for offset()
+   *
+   * @param int $offset Number of records to skip
+   * @return self
+   */
+  public function skip(int $offset): self
+  {
+    return $this->offset($offset);
+  }
+
+  /**
+   * Conditionally apply query modifications
+   *
+   * @param mixed $condition Boolean condition
+   * @param Closure $callback Callback to apply when true
+   * @param Closure|null $default Optional default callback when false
+   * @return self
+   *
+   * @example when($request->has('search'), function($q) use ($request) {
+   *     $q->where('name', 'like', "%{$request->search}%");
+   * })
+   */
+  public function when($condition, Closure $callback, ?Closure $default = null): self
+  {
+    if ($condition) {
+      $callback($this);
+    } elseif ($default) {
+      $default($this);
+    }
+    return $this;
+  }
+
+  /**
+   * Conditionally add a WHERE clause
+   *
+   * @param bool $condition Condition to check
+   * @param string $column Column name
+   * @param mixed $operator Operator or value
+   * @param mixed|null $value Comparison value
+   * @param string $boolean Logical operator
+   * @return self
+   *
+   * @example whereIf($isAdmin, 'role', 'admin') // Only add if $isAdmin is true
+   */
+  public function whereIf(bool $condition, string $column, $operator, $value = null, string $boolean = 'AND'): self
+  {
+    if ($condition) {
+      return $this->where($column, $operator, $value, $boolean);
+    }
+    return $this;
+  }
+
+  /**
+   * Conditionally add an OR WHERE clause
+   *
+   * @param bool $condition Condition to check
+   * @param string $column Column name
+   * @param mixed $operator Operator or value
+   * @param mixed|null $value Comparison value
+   * @return self
+   */
+  public function orWhereIf(bool $condition, string $column, $operator, $value = null): self
+  {
+    if ($condition) {
+      return $this->orWhere($column, $operator, $value);
+    }
+    return $this;
+  }
+
+  /**
+   * Retrieve the count of records matching the query
+   *
+   * @param string $column Column to count (default: all rows)
+   * @return int Number of matching records
+   *
+   * @example count() // Returns total users
+   * @example where('active', 1)->count() // Count active users
+   * @example count('email') // Count non-null emails
+   */
+  public function count(string $column = '*'): int
+  {
+    $query = clone $this;
+    $query->select = ["COUNT({$column}) AS aggregate"];
+    $query->limit = null;
+    $query->offset = null;
+    $result = $query->get()->first();
+    return (int) ($result->aggregate ?? 0);
+  }
+
+  /**
+   * Retrieve the maximum value of a column
+   *
+   * @param string $column Column to evaluate
+   * @return mixed Maximum value or null
+   *
+   * @example max('age') // Returns highest age
+   * @example where('department', 'IT')->max('salary')
+   */
+  public function max(string $column)
+  {
+    $query = clone $this;
+    $query->select = ["MAX({$column}) AS aggregate"];
+    $query->limit = null;
+    $query->offset = null;
+    $result = $query->get()->first();
+    return $result->aggregate ?? null;
+  }
+
+  /**
+   * Retrieve the minimum value of a column
+   *
+   * @param string $column Column to evaluate
+   * @return mixed Minimum value or null
+   *
+   * @example min('price') // Find lowest price
+   * @example where('in_stock', true)->min('discounted_price')
+   */
+  public function min(string $column)
+  {
+    $query = clone $this;
+    $query->select = ["MIN({$column}) AS aggregate"];
+    $query->limit = null;
+    $query->offset = null;
+    $result = $query->get()->first();
+    return $result->aggregate ?? null;
+  }
+
+  /**
+   * Calculate the average value of a column
+   *
+   * @param string $column Column to evaluate
+   * @return float Average value or 0.0
+   *
+   * @example avg('rating') // Get average product rating
+   * @example where('year', 2023)->avg('test_score')
+   */
+  public function avg(string $column): float
+  {
+    $query = clone $this;
+    $query->select = ["AVG({$column}) AS aggregate"];
+    $query->limit = null;
+    $query->offset = null;
+    $result = $query->get()->first();
+    return (float) ($result->aggregate ?? 0.0);
+  }
+
+  /**
+   * Calculate the sum of a column's values
+   *
+   * @param string $column Column to sum
+   * @return mixed Sum value or 0
+   *
+   * @example sum('revenue') // Total revenue
+   * @example where('status', 'completed')->sum('amount')
+   */
+  public function sum(string $column)
+  {
+    $query = clone $this;
+    $query->select = ["SUM({$column}) AS aggregate"];
+    $query->limit = null;
+    $query->offset = null;
+    $result = $query->get()->first();
+    return is_numeric($result->aggregate ?? 0) ? $result->aggregate + 0 : 0;
+  }
+
+
+  /**
+   * Paginate query results
+   *
+   * @param int $perPage Number of items per page
+   * @param int|null $currentPage Current page number
+   * @param string $pageParam URL query parameter for pagination
+   * @return Pagination Pagination instance
+   *
+   * @example ->paginate(15) // 15 items per page
+   * @example ->paginate(25, 3) // 25 items, jump to page 3
+   */
+  public function paginate(
+    int $perPage = 15,
+    ?int $currentPage = null,
+    string $pageParam = 'page'
+  ): Pagination {
+    // Get current page from request if not provided
+    $currentPage = $currentPage ?? ($_GET[$pageParam] ?? 1);
+
+    // Clone query to preserve original state
+    $totalQuery = clone $this;
+
+    // Get total records count
+    $total = $totalQuery->count();
+
+    // Calculate pagination values
+    $lastPage = max((int) ceil($total / $perPage), 1);
+    $offset = ($currentPage - 1) * $perPage;
+
+    // Get paginated data
+    $data = $this->limit($perPage)
+      ->offset($offset)
+      ->get()
+      ->toArray();
+
+    return new Pagination(
+      $data,
+      (int) $currentPage,
+      $lastPage,
+      $total,
+      $perPage
+    );
+  }
+
+  /**
+   * Paginate using cursor-based navigation
+   *
+   * @param int $perPage Number of items per page
+   * @param string|null $cursor Current cursor value
+   * @param string $cursorColumn Column to use for cursors (default: 'id')
+   * @param string $direction Order direction ('asc' or 'desc')
+   * @return CursorPagination
+   *
+   * @example ->cursorPaginate(15, 'last_seen_id')
+   * @example ->cursorPaginate(25, 'Zm9vYmFy', 'uuid', 'desc')
+   */
+  public function cursorPaginate(
+    int $perPage = 15,
+    ?string $cursor = null,
+    string $cursorColumn = 'id',
+    string $direction = 'desc'
+  ): CursorPagination {
+    // Store original query state
+    $originalOrders = $this->orders;
+    $originalLimit = $this->limit;
+
+    try {
+      // Always order by cursor column
+      $this->orders = ["$cursorColumn $direction"];
+
+      // Add cursor condition
+      if ($cursor !== null) {
+        $operator = $direction === 'asc' ? '>' : '<';
+        $this->where($cursorColumn, $operator, $cursor);
+      }
+
+      // Get one extra record to check for next page
+      $this->limit = $perPage + 1;
+
+      $data = $this->get()->toArray();
+
+      // Check if there's more data
+      $hasMore = count($data) > $perPage;
+      if ($hasMore) {
+        array_pop($data); // Remove extra record
+      }
+
+      // Determine cursors
+      $nextCursor = $hasMore ? $this->getCursorValue(end($data), $cursorColumn) : null;
+      $prevCursor = $cursor;
+
+      return new CursorPagination(
+        $data,
+        $nextCursor,
+        $prevCursor,
+        $perPage
+      );
+    } finally {
+      // Restore original query state
+      $this->orders = $originalOrders;
+      $this->limit = $originalLimit;
+    }
+  }
+
+  /**
+   * Extract cursor value from a record
+   */
+  protected function getCursorValue(array $record, string $cursorColumn): string
+  {
+    if (!isset($record[$cursorColumn])) {
+      throw new \RuntimeException("Cursor column {$cursorColumn} not found in results");
+    }
+
+    return (string) $record[$cursorColumn];
+  }
+
+
+  /**
+   * Simple pagination with previous/next links only
+   *
+   * @param int $perPage Number of items per page
+   * @param int|null $currentPage Current page number
+   * @param string $pageParam URL query parameter name
+   * @return Pagination
+   */
+  public function simplePaginate(
+    int $perPage = 15,
+    ?int $currentPage = null,
+    string $pageParam = 'page'
+  ): Pagination {
+    $pagination = $this->paginate($perPage, $currentPage, $pageParam);
+    return $pagination;
+  }
+
+  /**
+   * Convert DataSet to array
+   *
+   * @return array
+   */
+  public function toArray(): array
+  {
+    return $this->get()->all();
+  }
+
 
   // CRUD OPERATIONS
 
@@ -758,6 +2039,8 @@ class QueryEngine
 
     $sql .= $this->compileWheres();
 
+    $sql .= $this->compileOrders();
+
     if (!empty($this->groups)) {
       $sql .= ' GROUP BY ' . implode(', ', $this->groups);
     }
@@ -778,6 +2061,23 @@ class QueryEngine
   }
 
   /**
+   * Compile the ORDER BY clause
+   *
+   * Compile the ORDER BY clause based on the query builder's properties.
+   * This method builds the SQL query string for the ORDER BY clause.
+   *
+   * @return string The compiled SQL query
+   *
+   * @example $this->compileOrders()
+   */
+  protected function compileOrders(): string
+  {
+    if (empty($this->orders)) return '';
+
+    return ' ORDER BY ' . implode(', ', $this->orders);
+  }
+
+  /**
    * Compile the WHERE clauses
    *
    * Compile the WHERE clauses based on the query builder's properties.
@@ -791,39 +2091,114 @@ class QueryEngine
   {
     if (empty($this->wheres)) return '';
 
-    // Build WHERE clauses
     $clauses = [];
     foreach ($this->wheres as $index => $where) {
       $clause = $index === 0 ? '' : $where['boolean'] . ' ';
+      $column = $this->quoteColumn($where['column'] ?? '');
 
-      // Handle proper quoting for table.column syntax.
-      $column = $where['column'];
-      if (strpos($column, '.') !== false) {
-        $parts = explode('.', $column);
-        $column = implode('.', array_map(fn($part) => "`$part`", $parts));
-      } else {
-        $column = "`$column`";
-      }
-
-      // Handle different types of WHERE conditions
       switch ($where['type']) {
+        // Basic comparison
         case 'basic':
-          $clause .= "$column {$where['operator']} ?";
+          $clause .= "{$column} {$where['operator']} ?";
           break;
+
+        // IN/NOT IN
         case 'in':
           $placeholders = implode(', ', array_fill(0, count($where['values']), '?'));
           $not = $where['not'] ? 'NOT ' : '';
-          $clause .= "$column {$not}IN ($placeholders)";
+          $clause .= "{$column} {$not}IN ({$placeholders})";
           break;
+
+        // NULL/NOT NULL
         case 'null':
           $not = $where['not'] ? 'NOT ' : '';
-          $clause .= "$column IS {$not}NULL";
+          $clause .= "{$column} IS {$not}NULL";
           break;
+
+        // Column comparison
+        case 'column':
+          $first = $this->quoteColumn($where['first']);
+          $second = $this->quoteColumn($where['second']);
+          $clause .= "{$first} {$where['operator']} {$second}";
+          break;
+
+        // JSON operations
+        case 'json_contains':
+          $clause .= "JSON_CONTAINS({$column}, ?)";
+          break;
+        case 'json_contains_array':
+          $placeholders = implode(', ', array_fill(0, count($where['values']), '?'));
+          $clause .= "JSON_OVERLAPS({$column}, JSON_ARRAY({$placeholders}))";
+          break;
+        case 'json_any':
+          $clause .= "JSON_SEARCH({$column}, 'one', ?) IS NOT NULL";
+          break;
+        case 'json_all':
+          $clause .= "JSON_CONTAINS({$column}, ?) = JSON_LENGTH({$column})";
+          break;
+        case 'json_none':
+          $clause .= "JSON_SEARCH({$column}, 'one', ?) IS NULL";
+          break;
+
+        // BETWEEN
+        case 'between':
+          $not = $where['not'] ? 'NOT ' : '';
+          $clause .= "{$column} {$not}BETWEEN ? AND ?";
+          break;
+        case 'between_columns':
+          $not = $where['not'] ? 'NOT ' : '';
+          $start = $this->quoteColumn($where['start']);
+          $end = $this->quoteColumn($where['end']);
+          $clause .= "{$column} {$not}BETWEEN {$start} AND {$end}";
+          break;
+
+        // Date/time functions
+        case 'date':
+        case 'month':
+        case 'day':
+        case 'year':
+        case 'time':
+          $function = strtoupper($where['type']);
+          $clause .= "{$function}({$column}) {$where['operator']} ?";
+          break;
+
+        // Nested queries
+        case 'nested':
+          $nestedSql = $where['query']->compileWheres();
+          $nestedClause = substr($nestedSql, 7); // Remove ' WHERE '
+          $not = $where['not'] ?? false ? 'NOT ' : '';
+          $clause .= "{$not}({$nestedClause})";
+          break;
+
+        // Full-text search
+        case 'fulltext':
+          $clause .= "MATCH({$column}) AGAINST(? IN {$where['mode']} MODE)";
+          break;
+
+        // Raw expressions
+        case 'raw':
+          $clause .= $where['sql'];
+          break;
+
+        default:
+          throw new \RuntimeException("Unsupported where type: {$where['type']}");
       }
 
       $clauses[] = $clause;
     }
+
     return ' WHERE ' . implode(' ', $clauses);
+  }
+
+  protected function quoteColumn(string $column): string
+  {
+    if (strpos($column, '.') !== false) {
+      return implode('.', array_map(
+        fn($part) => "`" . str_replace("`", "``", $part) . "`",
+        explode('.', $column)
+      ));
+    }
+    return "`" . str_replace("`", "``", $column) . "`";
   }
 
   // HELPER METHODS
@@ -966,6 +2341,16 @@ class QueryEngine
     return "DELETE FROM `{$this->table}` " . $this->compileWheres();
   }
 
+  /**
+   * Get the bindings for the query
+   *
+   * Get the bindings for the query.
+   * This method returns the bindings for the current query.
+   *
+   * @return array The bindings for the query
+   *
+   * @example $this->getBindings()
+   */
   public function getBindings(): array
   {
     return $this->bindings;

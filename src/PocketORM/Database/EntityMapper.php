@@ -78,13 +78,13 @@ class EntityMapper
   /**
    * Insert multiple entities in a batch.
    */
-  // public static function insertBatch(string $entityClass, array $entities): void
-  // {
-  //   $table = $entityClass::getTable();
-  //   $data = array_map(fn($e) => $e->attributes, $entities);
+  public static function insertBatch(string $entityClass, array $entities): void
+  {
+    $table = $entityClass::getTable();
+    $data = array_map(fn($e) => self::prepareData($e), $entities);
 
-  //   (new QueryEngine($table))->insertBatch($data);
-  // }
+    (new QueryEngine($table))->insertBatch($data);
+  }
 
   /**
    * Remove an entity from the database.

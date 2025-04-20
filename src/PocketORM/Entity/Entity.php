@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Pocketframe\Essentials\Utilities\StringUtils;
 use Pocketframe\PocketORM\Concerns\HasTimeStamps;
 use Pocketframe\PocketORM\Database\EntityMapper;
+use Pocketframe\PocketORM\Database\QueryEngine;
 use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Exceptions\MassAssignmentError;
 use Pocketframe\PocketORM\Exceptions\ModelException;
@@ -76,7 +77,7 @@ abstract class Entity
    *
    * @var array
    */
-  protected array $eagerLoaded = [];
+  protected array $deepFetch = [];
 
   /**
    * Trash column name
@@ -161,7 +162,7 @@ abstract class Entity
   {
     return [
       'attributes' => $this->attributes,
-      'eagerLoaded' => $this->eagerLoaded,
+      'deepFetch' => $this->deepFetch,
       'relationships' => array_keys($this->relationship)
     ];
   }
@@ -173,9 +174,9 @@ abstract class Entity
    *
    * @return mixed The eager loaded data for the relationship.
    */
-  public function getEagerLoaded(): array
+  public function getDeepFetch(): array
   {
-    return $this->eagerLoaded;
+    return $this->deepFetch;
   }
 
 
@@ -247,9 +248,9 @@ abstract class Entity
    * @param mixed $data The data to set.
    * @return void
    */
-  public function setEagerLoaded(string $relation, $data): void
+  public function setDeepFetch(string $relation, $data): void
   {
-    $this->eagerLoaded[$relation] = $data;
+    $this->deepFetch[$relation] = $data;
   }
 
   /**
@@ -343,7 +344,7 @@ abstract class Entity
   }
 
   /**
-   * Load a relationship if not already cached in eagerLoaded.
+   * Load a relationship if not already cached in deepFetch.
    *
    * @param string $relation
    *
@@ -351,8 +352,8 @@ abstract class Entity
    */
   protected function loadRelationship(string $relation)
   {
-    if (array_key_exists($relation, $this->eagerLoaded)) {
-      return $this->eagerLoaded[$relation];
+    if (array_key_exists($relation, $this->deepFetch)) {
+      return $this->deepFetch[$relation];
     }
 
     if (!isset($this->relationship[$relation])) {
@@ -376,7 +377,7 @@ abstract class Entity
       $instance = new $relClass($this, $relatedEntity, $foreignKey);
     }
 
-    $this->eagerLoaded[$relation] = $instance;
+    $this->deepFetch[$relation] = $instance;
     return $instance;
   }
 
@@ -397,11 +398,11 @@ abstract class Entity
       throw new \InvalidArgumentException("Undefined relationship: {$relation}");
     }
 
-    if (!isset($this->eagerLoaded[$relation])) {
+    if (!isset($this->deepFetch[$relation])) {
       $this->loadRelationship($relation);
     }
 
-    return $this->eagerLoaded[$relation];
+    return $this->deepFetch[$relation];
   }
 
   /**
@@ -475,6 +476,43 @@ abstract class Entity
   {
     return isset($this->attributes['id']) && $this->attributes['id'] !== null;
   }
+
+  public static function all(): array
+  {
+    $query = new QueryEngine(static::class);
+    $records = $query->get();
+    return $records->toArray();
+  }
+
+  public function isEmpty(): bool
+  {
+    return empty($this->records);
+  }
+
+  public function last(): ?object
+  {
+    $record = end($this->records);
+    return $record ? (object)$record : null;
+  }
+
+  public function each(callable $callback): void
+  {
+    foreach ($this->records as $key => $record) {
+      $callback($record, $key);
+    }
+  }
+
+  public function sortBy(string $field, bool $descending = false): self
+  {
+    $records = $this->records;
+    usort($records, function ($a, $b) use ($field, $descending) {
+      $valueA = is_object($a) ? $a->$field : $a[$field];
+      $valueB = is_object($b) ? $b->$field : $b[$field];
+      return $descending ? $valueB <=> $valueA : $valueA <=> $valueB;
+    });
+
+    return new self($records);
+  }
   /**
    * Get the values of a specific column from the records.
    *
@@ -499,7 +537,7 @@ abstract class Entity
     $array = $this->attributes;
 
     // Convert each loaded relationship to array
-    foreach ($this->eagerLoaded as $relation => $value) {
+    foreach ($this->deepFetch as $relation => $value) {
       if ($value instanceof self) {
         $array[$relation] = $value->toArray();
       } elseif ($value instanceof DataSet) {

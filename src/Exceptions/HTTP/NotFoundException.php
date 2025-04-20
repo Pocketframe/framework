@@ -2,12 +2,9 @@
 
 namespace Pocketframe\Exceptions\HTTP;
 
-use Pocketframe\Exceptions\PocketframeException;
 
-class NotFoundException extends PocketframeException
+class NotFoundException extends HttpException
 {
-  public function __construct($message = 'Page not found')
-  {
-    parent::__construct($message, 404);
-  }
+  protected int $statusCode = 404;
+  protected string $defaultMessage = 'The requested resource was not found';
 }

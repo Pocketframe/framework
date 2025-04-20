@@ -8,15 +8,34 @@ class Kernel
 {
   protected array $commands = [];
 
-  public function __construct(array $argv)
+  // Constructor now takes no arguments.
+  public function __construct()
   {
+    // You could register core commands here if needed.
+  }
+
+  /**
+   * Handles CLI execution.
+   *
+   * @param array $argv The CLI arguments.
+   * @return void
+   */
+  public function handle(array $argv): void
+  {
+    // Register (and merge) all commands.
     $this->registerCommands($argv);
   }
 
+  /**
+   * Register and merge core commands with dynamic commands.
+   *
+   * @param array $argv CLI arguments.
+   * @return void
+   */
   private function registerCommands(array $argv): void
   {
-    // Command registry: map command names to their class and description.
-    $this->commands = [
+    // Define core commands.
+    $coreCommands = [
       'serve'  => [
         'class' => \Pocketframe\Console\Commands\ServeCommand::class,
         'desc'  => 'Start the built-in PHP server (automatically assigns a free port).'
@@ -27,11 +46,15 @@ class Kernel
       ],
       'entity:create' => [
         'class' => \Pocketframe\Console\Commands\CreateEntityCommand::class,
-        'desc' => 'Create a new entity (use -s for migration, -b for blueprint)'
+        'desc'  => 'Create a new entity (use -s for migration, -b for blueprint)'
       ],
       'schema:create' => [
         'class' => \Pocketframe\Console\Commands\CreateTableScriptCommand::class,
-        'desc' => 'Create a new table script'
+        'desc'  => 'Create a new table script'
+      ],
+      'schema:session-table' => [
+        'class' => \Pocketframe\Console\Commands\CreateSessionTableCommand::class,
+        'desc'  => 'Create a new session table script'
       ],
       'schema' => [
         'class' => \Pocketframe\Console\Commands\SchemaCommand::class,
@@ -39,7 +62,7 @@ class Kernel
       ],
       'planter:create' => [
         'class' => \Pocketframe\Console\Commands\CreateDataPlanterCommand::class,
-        'desc' => 'Create a new data planter'
+        'desc'  => 'Create a new data planter'
       ],
       'plant' => [
         'class' => \Pocketframe\Console\Commands\PlantCommand::class,
@@ -47,7 +70,7 @@ class Kernel
       ],
       'blueprint:create' => [
         'class' => \Pocketframe\Console\Commands\CreateBlueprintCommand::class,
-        'desc' => 'Create a new Entity blueprint'
+        'desc'  => 'Create a new Entity blueprint'
       ],
       'middleware:create'  => [
         'class' => \Pocketframe\Console\Commands\CreateMiddlewareCommand::class,
@@ -87,21 +110,19 @@ class Kernel
       ],
     ];
 
-    // Check if the user requested help with the --help flag.
-    $this->checkForHelp($argv);
+    // Merge core commands with any dynamic commands already added (for example, via PackageRegistry).
+    $this->commands = array_merge($coreCommands, $this->commands);
 
-    // processs the command
+    $this->checkForHelp($argv);
     $this->processCommand($argv);
   }
 
   public function checkForHelp(array $argv): void
   {
-    // Check if the user requested help with the --help flag.
     if (isset($argv[1]) && $argv[1] === '--help') {
       if (isset($argv[2])) {
         $commandToHelp = $argv[2];
         if (isset($this->commands[$commandToHelp])) {
-          // Display help for the specific command.
           $desc = $this->commands[$commandToHelp]['desc'] ?? 'No description available.';
           echo "Help for command '{$commandToHelp}':\n";
           echo $desc . "\n";
@@ -121,9 +142,7 @@ class Kernel
 
   public function processCommand(array $argv): void
   {
-    // Normal command processing.
     $commandName = $argv[1] ?? null;
-
     if (!$commandName) {
       $commandName = 'help';
       $args = [];
@@ -132,12 +151,18 @@ class Kernel
       $commandName = 'help';
       $args = [];
     } else {
-      // Get only the arguments after the command name.
       $args = array_slice($argv, 2);
     }
-
     $commandClass = $this->commands[$commandName]['class'];
     $command = new $commandClass($args);
     $command->handle();
+  }
+
+  public function addCommand(string $name, string $class, string $desc = ''): void
+  {
+    $this->commands[$name] = [
+      'class' => $class,
+      'desc'  => $desc,
+    ];
   }
 }

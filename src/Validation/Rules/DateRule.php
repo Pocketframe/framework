@@ -20,6 +20,6 @@ class DateRule implements Rule
 
   public function message(string $field): string
   {
-    return "The :attribute field must be a valid date.";
+    return "The {$field} must be a valid date.";
   }
 }

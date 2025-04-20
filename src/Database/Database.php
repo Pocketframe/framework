@@ -11,6 +11,7 @@ use Pocketframe\Exceptions\Database\QueryException;
 use Pocketframe\Exceptions\DatabaseException;
 use Pocketframe\Http\Request\Request;
 use Pocketframe\Http\Response\Response;
+use Pocketframe\PocketORM\Database\Connection;
 
 class Database
 {
@@ -38,10 +39,9 @@ class Database
    */
   public function __construct($database)
   {
-    $dsn = "mysql:host={$database['host']};port={$database['port']};dbname={$database['database']};charset=utf8mb4";
+    $this->connection = Connection::getInstance();
 
     try {
-      $this->connection = new PDO($dsn, $database['username'], $database['password']);
       $this->connection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     } catch (PDOException $e) {
       throw new PDOException("Database connection failed: " . $e->getMessage());

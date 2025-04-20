@@ -1,5 +1,9 @@
 <?php
 
+
+if (!defined('BASE_PATH')) {
+  define('BASE_PATH', dirname(__DIR__, 4) . '/');
+}
 /**
  * Helper Functions
  *
@@ -7,9 +11,8 @@
  * Each function is wrapped in function_exists() check to prevent conflicts.
  */
 
-use Pocketframe\Sessions\Session;
 use Pocketframe\Http\Response\Response;
-use Pocketframe\Routing\Router;
+use Pocketframe\Sessions\Mask\Session;
 
 /**
  * Get the absolute path from the base directory
@@ -217,20 +220,18 @@ if (!function_exists('error')) {
 }
 
 /**
- * Get old input value from session
+ * Retrieve old input.
  *
- * This function retrieves an old input value from the session.
- *
- * @param string $key The input field key
- * @param mixed $default Default value if key not found
- * @return mixed The old input value or default
+ * @param string $key
+ * @param mixed $default
+ * @return mixed
  */
 if (!function_exists('old')) {
-  function old(string $key, $default = null)
+  function old(string $key, mixed $default = null): mixed
   {
-    $value = $_SESSION['_old'][$key] ?? $default;
-    unset($_SESSION['_old'][$key]);
-    return $value;
+    start_session();
+    Session::start();
+    return Session::old($key, $default);
   }
 }
 
@@ -596,48 +597,131 @@ if (!function_exists('route')) {
   }
 }
 
-
-if (!function_exists('flash')) {
-  function flash(string $key = null, string $value = null)
+/**
+ * Start a session
+ *
+ * This function starts a session if one is not already active.
+ *
+ * @return void
+ */
+if (!function_exists('start_session')) {
+  function start_session(): void
   {
-    // If both a key and value are provided, set the flash data.
-    if ($key !== '' && $value !== null) {
-      if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
-      }
-      $_SESSION['flash'][$key] = $value;
-      return;
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+      session_start();
     }
-
-    // If only a key is provided, get and remove the value.
-    if ($key !== '') {
-      if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
-      }
-      $val = $_SESSION['flash'][$key] ?? null;
-      unset($_SESSION['flash'][$key]);
-      return $val;
-    }
-
-    // If no key is provided, return all flash data.
-    return $_SESSION['flash'] ?? [];
   }
 }
 
-if (!function_exists('session')) {
-  function session()
-  {
-    return new class {
-      public function has($key)
-      {
-        return \Pocketframe\Sessions\Session::hasFlash($key);
-      }
 
-      public function get($key, $default = null)
-      {
-        return \Pocketframe\Sessions\Session::getFlash($key, $default);
-      }
-    };
+/**
+ * Flash data (one‑time) into the session.
+ *
+ * This function stores data in the session to be retrieved once.
+ *
+ * @param string $key
+ * @param mixed $value
+ */
+if (!function_exists('flash')) {
+  function flash(string $key, mixed $value): void
+  {
+    start_session();
+    Session::start();
+    Session::flash($key, $value);
+  }
+}
+
+/**
+ * Retrieve flashed data.
+ *
+ * This function retrieves flashed data from the session.
+ *
+ * @param string $key
+ * @param mixed $default
+ * @return mixed
+ */
+if (!function_exists('get_flash')) {
+  function get_flash(string $key, mixed $default = null): mixed
+  {
+    start_session();
+    Session::start();
+    return Session::getFlash($key, $default);
+  }
+}
+
+if (!function_exists('has_flash')) {
+  function has_flash(string $key): bool
+  {
+    start_session();
+    Session::start();
+    return Session::hasFlash($key);
+  }
+}
+
+/**
+ * Store old input (e.g. after redirect with errors).
+ *
+ * @param array $input
+ */
+if (!function_exists('flash_old_input')) {
+  function flash_old_input(array $input): void
+  {
+    start_session();
+    Session::start();
+    Session::flashOld($input);
+  }
+}
+
+/**
+ * Retrieve old input.
+ *
+ * @param string $key
+ * @param mixed $default
+ * @return mixed
+ */
+if (!function_exists('get_old_input')) {
+  function get_old_input(string $key, mixed $default = null): mixed
+  {
+    start_session();
+    Session::start();
+    return Session::old($key, $default);
+  }
+}
+
+
+/**
+ * Retrieve the session mask or a specific key.
+ *
+ * @param string|null $key
+ * @param mixed $default
+ * @return mixed|\Pocketframe\Sessions\Session
+ */
+if (!function_exists('session')) {
+  function session(?string $key = null, mixed $default = null): mixed
+  {
+    start_session();
+    Session::start();
+
+    if ($key === null) {
+      return Session::all();
+    }
+
+    return Session::get($key, $default);
+  }
+}
+
+/**
+ * Put a value into the session.
+ *
+ * @param string $key
+ * @param mixed $value
+ */
+if (!function_exists('session_put')) {
+  function session_put(string $key, mixed $value): void
+  {
+    start_session();
+    Session::start();
+    Session::put($key, $value);
   }
 }
 

@@ -10,7 +10,7 @@ class StringRule implements Rule
 {
   public function isValid(mixed $value): bool
   {
-    return is_string($value) && !ctype_digit($value);
+    return is_string($value);
   }
 
   public function message(string $field): string

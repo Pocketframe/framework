@@ -204,7 +204,8 @@ class Validator
   public function failed(): bool
   {
     if (!empty($this->errors)) {
-      $_SESSION['errors'] = $this->errors;
+      flash_old_input($_POST);
+      flash('errors', $this->errors);
       header("Location: " . ($_SERVER['HTTP_REFERER'] ?? '/'));
       exit;
     }
