@@ -111,7 +111,7 @@ class QueryEngine
    */
   public function selectRaw(string $expression): self
   {
-    // $this->select = [];
+    $this->select = [];
     $this->rawSelects[] = $expression;
     return $this;
   }
