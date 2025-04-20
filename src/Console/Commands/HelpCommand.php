@@ -60,6 +60,7 @@ class HelpCommand implements CommandInterface
     echo "{$blue}  controller:create   {$reset}Generate a new controller file. Options: --api, --resource (-r), --invokable (-i).\n";
     echo "{$blue}  entity:create       {$reset}Create a new entity class.\n";
     echo "{$blue}  schema:create       {$reset}Create a new schema script. Options: --schema (-s) --blueprint (-b)\n";
+    echo "{$blue}  schema:session-table   {$reset}Create a new session table.\n";
     echo "{$blue}  planter:create      {$reset}Create a new data planter.\n";
     echo "{$blue}  blueprint:create    {$reset}Create a new Entity blueprint.\n";
     echo "{$blue}  middleware:create   {$reset}Generate a new middleware class.\n";
