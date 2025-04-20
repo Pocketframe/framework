@@ -100,6 +100,9 @@ class SessionManager
         session_set_save_handler($handler, true);
         break;
 
+      case 'array':
+        break;
+
       default:
         throw new \InvalidArgumentException("Unsupported session driver [{$driver}].");
     }
