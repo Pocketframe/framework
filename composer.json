@@ -21,16 +21,21 @@
         "ext-tokenizer": "*",
         "williamug/versioning": "dev-main",
         "vlucas/phpdotenv": "5.6.x-dev",
-        "symfony/error-handler": "7.3.x-dev",
+        "symfony/error-handler": "^7.2",
         "league/flysystem": "3.x-dev",
         "league/flysystem-local": "3.x-dev",
         "nesbot/carbon": "^3.x-dev",
         "erusev/parsedown": "1.7.x-dev",
-        "doctrine/dbal": "^4.3.x-dev"
+        "doctrine/dbal": "^4.3.x-dev",
+        "symfony/http-kernel": "^7.2",
+        "symfony/http-foundation": "^7.2"
     },
     "require-dev": {
         "symfony/var-dumper": "7.3.x-dev",
-        "fakerphp/faker": "^2.0.x-dev"
+        "fakerphp/faker": "^2.0.x-dev",
+        "pestphp/pest": "^3.8",
+        "pestphp/pest-plugin": "^3.0",
+        "mockery/mockery": "^1.6"
     },
     "license": "MIT",
     "autoload": {
@@ -41,12 +46,22 @@
             "Pocketframe\\": "src/"
         }
     },
+    "autoload-dev": {
+      "psr-4": {
+        "Tests\\": "tests/"
+      }
+    },
     "authors": [
         {
             "name": "William Asaba",
-            "email": "asabawilliam@gmail.com"
+            "email": "asabawilliamdk@yahoo.com"
         }
     ],
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
 }
