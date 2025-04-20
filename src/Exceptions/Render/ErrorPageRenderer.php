@@ -4,9 +4,9 @@ namespace Pocketframe\Exceptions\Render;
 
 class ErrorPageRenderer
 {
-    public static function render($title, $message, $details = null)
-    {
-        echo <<<HTML
+  public static function render($title, $message, $details = null)
+  {
+    echo <<<HTML
 <!DOCTYPE html>
 <html>
 <head>
@@ -23,7 +23,7 @@ class ErrorPageRenderer
             background: #f8fafc;
             text-align: center;
         }
-        
+
         .error-container {
             max-width: auto;
             padding: 2rem;
@@ -31,12 +31,12 @@ class ErrorPageRenderer
             border-radius: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
-        
+
         h1 {
             color: #dc2626;
             margin: 0 0 1rem 0;
         }
-        
+
         pre {
             white-space: pre-wrap;
             word-wrap: break-word;
@@ -54,17 +54,16 @@ class ErrorPageRenderer
         <h1>{$title}</h1>
         <p>{$message}</p>
 HTML;
-
-        if ($details) {
-            echo <<<DEBUG
+    if ($details) {
+      echo <<<DEBUG
         <pre>{$details}</pre>
 DEBUG;
-        }
+    }
 
-        echo <<<HTML
+    echo <<<HTML
     </div>
 </body>
 </html>
 HTML;
-    }
+  }
 }
