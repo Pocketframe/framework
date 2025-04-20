@@ -69,8 +69,7 @@ class Session
    */
   public static function exists(string $key): bool
   {
-    self::start();
-    return array_key_exists($key, $_SESSION);
+    return self::has($key);
   }
 
   /**
@@ -85,7 +84,17 @@ class Session
   public static function has(string $key): bool
   {
     self::start();
-    return isset($_SESSION[$key]);
+    $segments = explode('.', $key);
+    $data = $_SESSION;
+
+    foreach ($segments as $segment) {
+      if (!is_array($data) || !array_key_exists($segment, $data)) {
+        return false;
+      }
+      $data = $data[$segment];
+    }
+
+    return true;
   }
 
   /**
@@ -101,10 +110,19 @@ class Session
   public static function get(string $key, $default = null)
   {
     self::start();
-    if (array_key_exists($key, $_SESSION)) {
-      return $_SESSION[$key];
+
+    $segments = explode('.', $key);
+    $data = $_SESSION;
+
+    foreach ($segments as $segment) {
+      if (is_array($data) && array_key_exists($segment, $data)) {
+        $data = $data[$segment];
+      } else {
+        return $default;
+      }
     }
-    return $default;
+
+    return $data;
   }
 
   /**
@@ -120,7 +138,17 @@ class Session
   public static function put(string $key, $value): void
   {
     self::start();
-    $_SESSION[$key] = $value;
+    $segments = explode('.', $key);
+    $data = &$_SESSION;
+
+    foreach ($segments as $segment) {
+      if (!isset($data[$segment]) || !is_array($data[$segment])) {
+        $data[$segment] = [];
+      }
+      $data = &$data[$segment];
+    }
+
+    $data = $value;
   }
 
   /**
@@ -138,7 +166,7 @@ class Session
   {
     self::start();
     foreach ($data as $k => $v) {
-      $_SESSION[$k] = $v;
+      self::put($k, $v);
     }
   }
 
@@ -195,8 +223,9 @@ class Session
    *
    * @return void
    */
-  public function destroy(): void
+  public static function destroy(): void
   {
+    self::start();
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
       $p = session_get_cookie_params();
@@ -300,22 +329,50 @@ class Session
   }
 
   /**
-   * Check if an old input key exists in the session.
-   * This method checks if a specific old input key exists in the session data.
-   * It starts the session if it is not already started.
-   * This method is useful for checking if a specific old input variable is set.
+   * Get old input data from the session.
+   * This method retrieves the value of a specific old input key.
+   * Old input data is used to preserve input across requests.
+   * If the session is not already started, it will start the session.
+   * This method is useful for retrieving old input data that was stored in the session.
    *
-   * @param string $key The old input key to check.
-   * @return bool True if the key exists, false otherwise.
+   * @param string $key The old input key to retrieve.
+   * @param mixed $default The default value to return if the key does not exist.
+   * @return mixed The value of the old input key or the default value.
    */
   public static function old(string $key, $default = null)
   {
     self::start();
-    $val = $_SESSION[self::KEY]['_old'][$key] ?? $default;
-    unset($_SESSION[self::KEY]['_old'][$key]);
-    return $val;
+
+    $data = $_SESSION[self::KEY]['_old'] ?? [];
+
+    $segments = explode('.', $key);
+    foreach ($segments as $segment) {
+      if (!is_array($data) || !array_key_exists($segment, $data)) {
+        return $default;
+      }
+      $data = $data[$segment];
+    }
+
+    unset($_SESSION[self::KEY]['_old'][$segments[0]]);
+
+    return $data;
   }
 
+  /**
+   * Store old input data in the session.
+   * This method stores old input data in the session using the provided
+   * associative array. The keys of the array are used as session keys.
+   * If the session is not already started, it will start the session.
+   * This method is useful for preserving old input data across requests.
+   *
+   * @param array $data The associative array of key-value pairs to store as old input data.
+   * @return void
+   */
+  public static function withOld(array $data): void
+  {
+    self::start();
+    $_SESSION[self::KEY]['_old'] = $data;
+  }
   /**
    * Expire flash messages.
    * This method clears all flash messages stored in the session.
