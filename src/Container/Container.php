@@ -29,7 +29,8 @@ class Container
   /**
    * Get the container instance
    *
-   * This method will return the container instance.
+   * This method will return the container instance. If no instance is set, it will create a new instance.
+   * If an instance is already set, it will return the existing instance.
    *
    * @return Container
    */
@@ -44,7 +45,9 @@ class Container
   /**
    * Bind a shared singleton instance
    *
-   * This method will bind a resolver for a class or interface.
+   * This method will bind a resolver for a class or interface. The resolver can be a closure or a class name.
+   * The resolver will be called only once and the instance will be stored in the container. Every subsequent call to
+   * get() will return the same instance.
    *
    * @param string $key
    * @param callable $resolver
@@ -58,7 +61,8 @@ class Container
   /**
    * Store an existing instance as a singleton
    *
-   * This method will store an existing instance as a singleton.
+   * This method will store an existing instance as a singleton. This is useful for when you want to use an
+   * existing instance as a singleton instead of creating a new instance.
    *
    * @param string $key
    * @param object $instance
