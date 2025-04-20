@@ -10,6 +10,7 @@ use Pocketframe\Exceptions\ExceptionHandler;
 use Pocketframe\Exceptions\Handler;
 use Pocketframe\Logger\Logger;
 use Pocketframe\Package\PackageLoader;
+use Pocketframe\PocketORM\Database\Connection;
 use Pocketframe\Sessions\Mask\Session;
 
 class ContainerRegister
@@ -40,8 +41,8 @@ class ContainerRegister
 
     // Bind the Database class with its dependencies
     $container->bind(Database::class, function () {
-      $config = config('database.database');
-      return new Database($config);
+      Connection::configure();
+      return new Database(Connection::getInstance());
     });
 
     // Bind the Logger class
