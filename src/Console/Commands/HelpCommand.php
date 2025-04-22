@@ -32,9 +32,8 @@ class HelpCommand implements CommandInterface
     // Retrieve the version dynamically (for example, via an environment variable).
     // Ensure that your environment is loaded before running commands.
     $version = getenv('POCKETFRAME_VERSION')
-      ?: trim(shell_exec('git describe --tags --abbrev=0 2>/dev/null'))
-      ?: (file_exists(BASE_PATH . '/VERSION') ? trim(file_get_contents(BASE_PATH . '/VERSION')) : 'Unknown');
-
+    ?: (($gitVersion = shell_exec('git describe --tags --abbrev=0 2>/dev/null')) ? trim($gitVersion) : null)
+    ?: (file_exists(BASE_PATH . '/VERSION') ? trim(file_get_contents(BASE_PATH . '/VERSION')) : 'Unknown');
     // Documentation URL.
     $documentationUrl = "https://pocketframe.github.io/docs/";
 
