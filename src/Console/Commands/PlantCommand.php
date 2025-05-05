@@ -41,6 +41,7 @@ class PlantCommand implements CommandInterface
 
   protected function runSpecificPlanter(string $planterClass): void
   {
+    $planterClass = "Database\\Planters\\{$planterClass}";
     if (!class_exists($planterClass)) {
       echo "❌ Planter class not found: {$planterClass}\n";
       return;
