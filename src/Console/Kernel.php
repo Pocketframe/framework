@@ -46,7 +46,7 @@ class Kernel
       ],
       'entity:create' => [
         'class' => \Pocketframe\Console\Commands\CreateEntityCommand::class,
-        'desc'  => 'Create a new entity (use -s for migration, -b for blueprint)'
+        'desc'  => 'Create a new entity (use -s for schema script, -b for blueprint)'
       ],
       'schema:create' => [
         'class' => \Pocketframe\Console\Commands\CreateTableScriptCommand::class,
