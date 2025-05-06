@@ -8,5 +8,5 @@ use Pocketframe\Http\Response\Response;
 
 interface MiddlewareInterface
 {
-    public function handle(Request $request, Closure $next): Response;
+  public function handle(Request $request, Closure $next): Response;
 }
