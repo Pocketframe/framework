@@ -3,7 +3,6 @@
 namespace Pocketframe\PocketORM\Concerns;
 
 use Pocketframe\PocketORM\Entity\Entity;
-use Pocketframe\PocketORM\Essentials\RecordSet;
 use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Relationships\Bridge;
 use Pocketframe\PocketORM\Relationships\HasMultiple;
@@ -47,7 +46,7 @@ trait DeepFetch
   }
 
   /**
-   * Batch eager load relationships for multiple records at once.
+   * Batch deep fetch relationships for multiple records at once.
    */
   private function batchLoad(DataSet $records, array $relations): void
   {
@@ -57,37 +56,36 @@ trait DeepFetch
     $relation = array_shift($relations);
     $first = reset($allRecords);
 
-    if (!$first instanceof Entity) {
-      throw new \RuntimeException('Records must be Entity instances');
-    }
-
     $config = $first->getRelationshipConfig($relation);
-    if (!$config) {
-      throw new \Exception("Relationship '{$relation}' is not defined in " . get_class($first));
-    }
-    // [$relationshipClass, $relatedEntity, $foreignKey] = $config;
-    // Extract relationship parameters based on type
     $relationshipClass = $config[0];
     $args = $this->prepareRelationshipArgs($first, $config);
-
-    // Create relationship instance with proper arguments
     $relationship = new $relationshipClass(...$args);
-    $relatedMap = $relationship->eagerLoad($allRecords);
 
-    foreach ($allRecords as $parent) {
-      // Using parent's id for grouping (adjust if needed)
-      $key = $parent->id;
-      if ($key !== null) {
-        $parent->setDeepFetch($relation, $this->formatLoadedData($relationship, $relatedMap[$key] ?? []));
-      }
+    $relatedMap = $relationship->deepFetch($allRecords);
+
+    // Determine lookup key based on relationship type
+    if ($relationship instanceof Bridge || $relationship instanceof HasMultiple) {
+      // For Bridge and HasMultiple, use parent's ID
+      $lookupKey = 'id';
+    } else {
+      // For OwnedBy/HasOne, use foreign key from parent
+      $lookupKey = $relationship->getForeignKey();
     }
 
-    // If there are more nested relations, recursively load them
+    foreach ($allRecords as $parent) {
+      $keyValue = $parent->{$lookupKey};
+      $parent->setDeepFetch(
+        $relation,
+        $this->formatLoadedData($relationship, $relatedMap[$keyValue] ?? [])
+      );
+    }
+
     if (!empty($relations)) {
       $relatedRecords = new DataSet(array_merge(...array_values($relatedMap)));
       $this->batchLoad($relatedRecords, $relations);
     }
   }
+
 
   private function prepareRelationshipArgs(Entity $parent, array $config): array
   {
