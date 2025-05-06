@@ -55,7 +55,6 @@ class CookieSessionHandler implements SessionHandlerInterface
 
   public function gc($maxLifetime): int
   {
-    // nothing to clean server-side
     return 0;
   }
 }

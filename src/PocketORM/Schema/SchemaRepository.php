@@ -4,7 +4,7 @@ namespace Pocketframe\PocketORM\Schema;
 
 use PDO;
 use Pocketframe\Essentials\Utilities\StringUtils;
-use Pocketframe\PocketORM\Database\QueryEngine;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 use Pocketframe\Exceptions\Database\QueryException;
 use Pocketframe\PocketORM\Database\Connection;
 

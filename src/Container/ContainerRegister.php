@@ -2,6 +2,9 @@
 
 namespace Pocketframe\Container;
 
+use Pocketframe\Cache\Cache;
+use Pocketframe\Cache\CacheDriverInterface;
+use Pocketframe\Cache\CacheManager;
 use Pocketframe\Console\Kernel;
 use Pocketframe\Container\Container;
 use Pocketframe\Contracts\ExceptionHandlerInterface;
@@ -49,6 +52,16 @@ class ContainerRegister
     $container->bind(Logger::class, function () {
       return new Logger();
     });
+
+    // Bind the CacheManager
+    $container->singleton(CacheDriverInterface::class, function () {
+      $driver = config('cache.driver', 'file');
+      CacheManager::setDriver($driver);
+      return CacheManager::getDriver();
+    });
+
+    // Bind the Cache class
+    $container->bind(Cache::class, fn() => new Cache());
 
     // Bind the session manager
     $container->singleton(Session::class, fn() => new Session());

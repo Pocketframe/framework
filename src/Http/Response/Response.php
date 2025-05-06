@@ -104,6 +104,46 @@ class Response
     );
   }
 
+
+  /**
+   * JSONP response
+   *
+   * This method returns a JSONP response.
+   *
+   * @param array $data The data to encode as JSON
+   * @param string $callbackParam The name of the callback parameter
+   * @return self The new Response object
+   */
+  public function jsonp(array $data, string $callbackParam = 'callback'): self
+  {
+    $callback = $_GET[$callbackParam] ?? 'callback';
+    $content = "/**/$callback(" . json_encode($data) . ");";
+
+    return new static(
+      $content,
+      self::OK,
+      ['Content-Type' => 'application/javascript']
+    );
+  }
+
+  /**
+   * Pretty JSON response
+   *
+   * This method returns a pretty JSON response.
+   *
+   * @param array $data The data to encode as JSON
+   * @param int $status The HTTP status code to set
+   * @return self The new Response object
+   */
+  public static function prettyJson(array $data, int $status = self::OK): Response
+  {
+    return new static(
+      json_encode($data, JSON_PRETTY_PRINT),
+      $status,
+      ['Content-Type' => 'application/json']
+    );
+  }
+
   /**
    * Add a terminator to the response
    *
@@ -432,45 +472,6 @@ class Response
       ->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0')
       ->setHeader('Pragma', 'no-cache')
       ->setHeader('Expires', '0');
-  }
-
-  /**
-   * JSONP response
-   *
-   * This method returns a JSONP response.
-   *
-   * @param array $data The data to encode as JSON
-   * @param string $callbackParam The name of the callback parameter
-   * @return self The new Response object
-   */
-  public function jsonp(array $data, string $callbackParam = 'callback'): self
-  {
-    $callback = $_GET[$callbackParam] ?? 'callback';
-    $content = "/**/$callback(" . json_encode($data) . ");";
-
-    return new static(
-      $content,
-      self::OK,
-      ['Content-Type' => 'application/javascript']
-    );
-  }
-
-  /**
-   * Pretty JSON response
-   *
-   * This method returns a pretty JSON response.
-   *
-   * @param array $data The data to encode as JSON
-   * @param int $status The HTTP status code to set
-   * @return self The new Response object
-   */
-  public function prettyJson(array $data, int $status = self::OK): self
-  {
-    return new static(
-      json_encode($data, JSON_PRETTY_PRINT),
-      $status,
-      ['Content-Type' => 'application/json']
-    );
   }
 
   /**

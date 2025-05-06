@@ -3,7 +3,7 @@
 namespace Pocketframe\TemplateEngine;
 
 use Exception;
-use Pocketframe\Cache\Cache;
+use Pocketframe\Cache\Mask\Cache;
 use Pocketframe\Http\Response\Response;
 
 /**
@@ -134,6 +134,31 @@ class TemplateCompiler
     // Process other directives
     $content = $this->compileStatements($content);
 
+
+    $content = preg_replace_callback(
+      '/<x-paginate\s+([^\/>]+?)\s*\/\>/i',
+      function ($matches) {
+        $attrString = $matches[1];
+        preg_match_all(
+          '/(?P<key>[:\w-]+)\s*=\s*(?P<quote>[\'\"])([^\'\"]+)\k<quote>/x',
+          $attrString,
+          $attrMatches,
+          PREG_SET_ORDER
+        );
+        $attrs = [];
+        foreach ($attrMatches as $attr) {
+          $key = ltrim($attr['key'], ':');
+          $attrs[$key] = $attr[3];
+        }
+        $dataset = $attrs['dataset'] ?? 'null';
+        $method = (isset($attrs['mode']) && strtolower($attrs['mode']) === 'cursor')
+          ? 'renderCursor'
+          : 'renderPages';
+        return "<?php echo {$dataset}->{$method}(); ?>";
+      },
+      $content
+    );
+
     // Process XML-like <x-...> component tags.
     $content = preg_replace_callback('/<x-([\w-]+)([^>]*)>(.*?)<\/x-\1>/s', function ($matches) {
       return $this->compileXComponent($matches);
@@ -221,6 +246,7 @@ class TemplateCompiler
       'required'     => "<?php echo ({$args}) ? 'required' : ''; ?>",
       'continue'     => $this->compileFlowControl('continue', $args),
       'break'        => $this->compileFlowControl('break', $args),
+      'paginate'     => $this->compilePaginate($args),
       default        => "@$directive" . ($args !== '' ? "($args)" : '')
     };
   }
@@ -396,6 +422,35 @@ class TemplateCompiler
     );
 
     return $content;
+  }
+
+  /**
+   * Compiles the "paginate" directive.
+   *
+   * @param string $args The arguments for the paginate directive.
+   * @return string The compiled PHP code.
+   *
+   * Usage
+   *
+   * @paginate($items)            // full page links
+   * @paginate($items, 'cursor')// only Prev/Nex
+   */
+  protected function compilePaginate(string $args): string
+  {
+    // split into at most two parts: [ dataset, mode? ]
+    $parts = array_map('trim', explode(',', $args, 2));
+
+    $dataset = $parts[0];
+
+    // if the second arg is exactly the literal 'cursor', switch mode
+    $mode = $parts[1] ?? '';
+    $method = $mode === "'cursor'" || $mode === '"cursor"'
+      ? 'renderCursor'
+      : 'renderPages';
+
+    // we DON'T pass a framework here, so each method will
+    // read config('pagination.framework') internally.
+    return "<?php echo {$dataset}->{$method}(); ?>";
   }
 
   /**

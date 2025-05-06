@@ -2,14 +2,14 @@
 
 namespace Pocketframe\PocketORM\Exceptions;
 
-final class PersistenceFailureError extends ModelException
+final class PersistenceFailureError extends EntityException
 {
-  public function __construct(string $modelClass, string $operation)
+  public function __construct(string $entityClass, string $operation)
   {
     parent::__construct(
-      "Failed to persist {$modelClass} during {$operation}",
+      "Failed to persist {$entityClass} during {$operation}",
       self::PERSISTENCE_FAILURE,
-      $modelClass,
+      $entityClass,
       ['operation' => $operation]
     );
   }

@@ -150,6 +150,13 @@ class Request
     return $default;
   }
 
+  public function storeFileOrNull(string $key, string $directory, string $disk = 'public'): ?string
+  {
+    return $this->hasFile($key)
+      ? $this->file($key)->store($directory, $disk)
+      : null;
+  }
+
   /**
    * Check if a specific file upload exists
    *

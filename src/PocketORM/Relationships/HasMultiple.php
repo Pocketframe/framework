@@ -2,15 +2,17 @@
 
 namespace Pocketframe\PocketORM\Relationships;
 
-use Pocketframe\PocketORM\Database\QueryEngine;
 use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Entity\Entity;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 
 /**
  * HasMultiple: one-to-many relationship (a parent has multiple children).
  */
 class HasMultiple
 {
+  use RelationshipUtils;
+
   private Entity $parent;
   private string $related;
   private string $foreignKey;
@@ -22,25 +24,17 @@ class HasMultiple
     $this->foreignKey = $foreignKey;
   }
 
-  public function eagerLoad(array $parents): array
+  public function deepFetch(array $parents): array
   {
     $parentIds = array_column($parents, 'id');
 
+    $query = new QueryEngine($this->related);
 
-    // Get all related records as proper entities
-    $relatedRecords = (new QueryEngine($this->related))
-      ->whereIn($this->foreignKey, $parentIds)
-      ->get()
-      ->all();
+    $relatedRecords = $this->chunkedWhereIn($query, $this->foreignKey, $parentIds);
 
-    $grouped = [];
-    foreach ($relatedRecords as $record) {
-      $foreignKeyValue = $record->{$this->foreignKey};
-      $grouped[$foreignKeyValue][] = $record;
-    }
-
-    return $grouped;
+    return self::groupByKey($relatedRecords, $this->foreignKey);
   }
+
 
   public function getForeignKey(): string
   {
