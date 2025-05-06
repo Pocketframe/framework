@@ -5,6 +5,7 @@ namespace Pocketframe\PocketORM\Database;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Entity\HookDispatcher;
 use Pocketframe\PocketORM\Exceptions\PersistenceFailureError;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 
 class DataMapping
 {
@@ -34,7 +35,7 @@ class DataMapping
 
       HookDispatcher::trigger('saved', $entity);
     } catch (PersistenceFailureError $e) {
-      throw new PersistenceFailureError("Persist failed: " . $e->getMessage(), $e->getCode(), $e->getModelClass(), $e->getContext());
+      throw new PersistenceFailureError("Persist failed: " . $e->getMessage(), $e->getCode(), $e->getEntityClass(), $e->getContext());
     }
   }
 
