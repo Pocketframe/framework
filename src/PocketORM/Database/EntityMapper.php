@@ -49,7 +49,7 @@ class EntityMapper
       throw new PersistenceFailureError(
         "Persist failed: " . $e->getMessage(),
         $e->getCode(),
-        $e->getModelClass(),
+        $e->getEntityClass(),
         $e->getContext()
       );
     }

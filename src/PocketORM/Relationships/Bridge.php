@@ -2,67 +2,66 @@
 
 namespace Pocketframe\PocketORM\Relationships;
 
-use Pocketframe\PocketORM\Database\QueryEngine;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Exceptions\RelationshipResolutionError;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 
 /**
  * Bridge: represents a many-to-many relationship via a pivot table.
  */
 class Bridge
 {
+  use RelationshipUtils;
+
   private Entity $parent;
   private string $related;
-  private string $pivotTable;
+  private string $bridgeTable;
   private string $parentKey;
   private string $relatedKey;
 
-  public function __construct(Entity $parent, string $related, string $pivotTable, string $parentKey, string $relatedKey)
+  public function __construct(Entity $parent, string $related, string $bridgeTable, string $parentKey, string $relatedKey)
   {
     $this->parent     = $parent;
     $this->related    = $related;
-    $this->pivotTable = $pivotTable;
+    $this->bridgeTable = $bridgeTable;
     $this->parentKey  = $parentKey;
     $this->relatedKey = $relatedKey;
   }
 
-  public function eagerLoad(array $parents): array
+  public function deepFetch(array $parents): array
   {
     $parentIds = array_map(fn($parent) => (int)$parent->id, $parents);
 
-    // Disable soft delete filtering on the pivot table
-    $pivotData = (new QueryEngine($this->pivotTable))
-      ->withTrashed()
-      ->whereIn($this->parentKey, $parentIds)
-      ->get()
-      ->toArray();
+    // Bridge table: chunk if needed
+    $bridgeQuery = (new QueryEngine($this->bridgeTable))->withTrashed();
+    $bridgeData = $this->chunkedWhereIn($bridgeQuery, $this->parentKey, $parentIds);
 
-    // Extract unique related IDs from pivot data
+    // Related IDs
     $relatedIds = array_map(
       'intval',
-      array_unique(array_column($pivotData, $this->relatedKey))
+      array_unique(array_column($bridgeData, $this->relatedKey))
     );
 
-    // Fetch related IDs
-    $relatedRecordsRaw = (new QueryEngine($this->related))
-      ->whereIn('id', $relatedIds)
-      ->withTrashed()
-      ->get()
-      ->all();
+    // Related records: chunk if needed
+    $relatedQuery = new QueryEngine($this->related);
+    $traits = class_uses($this->related);
+    if (in_array(\Pocketframe\PocketORM\Concerns\Trashable::class, $traits)) {
+      $relatedQuery->withTrashed();
+    }
+    $relatedRecordsRaw = $this->chunkedWhereIn($relatedQuery, 'id', $relatedIds);
 
+    // Group related records by id for fast lookup
     $relatedRecords = [];
     foreach ($relatedRecordsRaw as $record) {
       $relatedRecords[$record->id] = $record;
     }
 
-
-    // Map parent IDs to their tags
+    // Group by parent key
     $mapped = [];
-    foreach ($pivotData as $pivot) {
-      $parentId = (int)$pivot[$this->parentKey];
-      $relatedId = (int)$pivot[$this->relatedKey];
-
+    foreach ($bridgeData as $bridge) {
+      $parentId = (int)$bridge[$this->parentKey];
+      $relatedId = (int)$bridge[$this->relatedKey];
       if (isset($relatedRecords[$relatedId])) {
         $mapped[$parentId][] = $relatedRecords[$relatedId];
       }
@@ -71,10 +70,6 @@ class Bridge
     return $mapped;
   }
 
-  public function getParentKey(): string
-  {
-    return $this->parentKey ?? 'id';
-  }
 
   public function get(): DataSet
   {
@@ -89,17 +84,27 @@ class Bridge
       );
     }
 
-    return (new QueryEngine($this->pivotTable))
+    return (new QueryEngine($this->bridgeTable))
       ->withTrashed()
       ->select([$this->related::getTable() . '.*'])
       ->join(
         $this->related::getTable(),
-        "{$this->pivotTable}.{$this->relatedKey}",
+        "{$this->bridgeTable}.{$this->relatedKey}",
         '=',
         "{$this->related::getTable()}.id"
       )
-      ->where("{$this->pivotTable}.{$this->parentKey}", '=', $this->parent->id)
+      ->where("{$this->bridgeTable}.{$this->parentKey}", '=', $this->parent->id)
       ->get();
+  }
+
+  public function getForeignKey(): string
+  {
+    return $this->relatedKey;
+  }
+
+  public function getParentKey(): string
+  {
+    return $this->parentKey;
   }
 
   public function attach($relatedIds): void
@@ -122,7 +127,7 @@ class Bridge
       $this->relatedKey => (int) $id
     ], $relatedIds);
 
-    (new QueryEngine($this->pivotTable))
+    (new QueryEngine($this->bridgeTable))
       ->insertBatch($insertData);
   }
 
@@ -132,7 +137,7 @@ class Bridge
       throw new \RuntimeException("Cannot detach - parent entity lacks an ID");
     }
 
-    (new QueryEngine($this->pivotTable, $this->related))
+    (new QueryEngine($this->bridgeTable, $this->related))
       ->where($this->parentKey, '=', $this->parent->id)
       ->where($this->relatedKey, '=', $relatedId)
       ->delete();
@@ -144,8 +149,8 @@ class Bridge
       throw new \RuntimeException("Cannot sync relationships - parent entity lacks an ID");
     }
 
-    // Delete all existing pivot entries for this parent
-    (new QueryEngine($this->pivotTable))
+    // Delete all existing bridge entries for this parent
+    (new QueryEngine($this->bridgeTable))
       ->where($this->parentKey, '=', $this->parent->id)
       ->delete();
 

@@ -2,7 +2,7 @@
 
 namespace Pocketframe\PocketORM\Exceptions;
 
-final class RelationshipResolutionError extends ModelException
+final class RelationshipResolutionError extends EntityException
 {
   public function __construct(string $entityClass, string $relation)
   {

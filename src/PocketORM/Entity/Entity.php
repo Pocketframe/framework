@@ -5,15 +5,16 @@ namespace Pocketframe\PocketORM\Entity;
 use Carbon\Carbon;
 use Pocketframe\Essentials\Utilities\StringUtils;
 use Pocketframe\PocketORM\Concerns\HasTimeStamps;
-use Pocketframe\PocketORM\Database\EntityMapper;
-use Pocketframe\PocketORM\Database\QueryEngine;
+use Pocketframe\PocketORM\Entity\EntityMapper;
 use Pocketframe\PocketORM\Essentials\DataSet;
+use Pocketframe\PocketORM\Exceptions\EntityException;
 use Pocketframe\PocketORM\Exceptions\MassAssignmentError;
-use Pocketframe\PocketORM\Exceptions\ModelException;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 use Pocketframe\PocketORM\Relationships\HasOne;
 use Pocketframe\PocketORM\Relationships\HasMultiple;
 use Pocketframe\PocketORM\Relationships\OwnedBy;
 use Pocketframe\PocketORM\Relationships\Bridge;
+use Pocketframe\PocketORM\Relationships\RelationshipNotDefinedException;
 use Pocketframe\PocketORM\Schema\Schema;
 
 /**
@@ -44,6 +45,20 @@ abstract class Entity
   public array $attributes = [];
 
   /**
+   * Global scopes
+   *
+   * @var array
+   */
+  protected static array $globalScopes = [];
+
+  /**
+   * Whether the entity has been booted
+   *
+   * @var array
+   */
+  protected static array $booted = [];
+
+  /**
    * Relationship definitions.
    *
    * @var array
@@ -51,7 +66,7 @@ abstract class Entity
    * Example:
    * protected array $relationship = [
    *   'profile' => [Entity::HAS_ONE, Profile::class, 'user_id'],
-   *   'posts'   => [Entity::HAS_MULTIPLE, Post::class, 'author_id'],
+   *   'posts'   => [Entity::HAS_MULTIPLE, Post::class, 'post_id'],
    *   'role'    => [Entity::OWNED_BY, Role::class, 'role_id'],
    *   'groups'  => [Entity::BRIDGE, Group::class, 'user_groups', 'user_id', 'group_id']
    * ];
@@ -86,6 +101,29 @@ abstract class Entity
    */
   protected static string $trashColumn = 'trashed_at';
 
+  /**
+   * Trash value
+   * Default will be timestamp
+   *
+   * @var mixed
+   */
+  protected static $trashValue = null;
+
+  /**
+   * Restore value
+   * Default will be null
+   *
+   * @var mixed
+   */
+  protected static $restoreValue = null;
+
+  /**
+   * Whether the entity is immutable
+   *
+   * @var bool
+   */
+  protected bool $immutable = false;
+
   // Relationship type constants for convenience
   const HAS_ONE      = HasOne::class;
   const HAS_MULTIPLE = HasMultiple::class;
@@ -98,6 +136,7 @@ abstract class Entity
    * @param array $attributes
    *
    * @return void
+   * @example: $entity = new Entity(['id' => 1, 'name' => 'John']);
    */
   public function __construct(array $attributes = [])
   {
@@ -107,35 +146,59 @@ abstract class Entity
   /**
    * Magic getter to retrieve attributes or relationships.
    *
-   * @param string $name
+   * This method is used to retrieve attributes or relationships.
+   * It throws an error if the property is undefined.
    *
+   * @param string $name
    * @return mixed
    */
   public function __get(string $name)
   {
-    // 1. Return attribute if it exists
+    // 1) Already loaded?
+    if (array_key_exists($name, $this->deepFetch)) {
+      return $this->deepFetch[$name];
+    }
+
+    // 2) Actual attribute?
     if (array_key_exists($name, $this->attributes)) {
       return $this->attributes[$name];
     }
 
-    // 2. Check if it's a defined relationship
+    // 3) Relationship?
     if (isset($this->relationship[$name])) {
-      return $this->loadRelationship($name);
+      $handler = $this->loadRelationship($name);
+
+      // If it’s a BELONGS-TO or HAS-ONE, immediately resolve to a single model:
+      if (
+        $handler instanceof \Pocketframe\PocketORM\Relationships\OwnedBy
+        || $handler instanceof \Pocketframe\PocketORM\Relationships\HasOne
+      ) {
+        $resolved = $handler->resolve();
+      } else {
+        // For HasMultiple or Bridge, get back a DataSet
+        $resolved = $handler->get();
+      }
+
+      // Cache it & return it
+      return $this->deepFetch[$name] = $resolved;
     }
 
-    // 3. If it's a date attribute, return as Carbon
-    if (in_array($name, $this->dates)) {
+    // 4) Date or error
+    if (in_array($name, $this->dates, true)) {
       return $this->getDateValue($name);
     }
 
-    throw new ModelException("Undefined property: {$name}");
+    throw new EntityException("Undefined property: {$name}");
   }
+
 
   /**
    * Magic setter, respecting guarded attributes.
    *
-   * @param string $name
+   * This method is used to set the value of an attribute.
+   * It throws an error if the attribute is guarded.
    *
+   * @param string $name
    * @param mixed $value
    *
    * @return void
@@ -145,9 +208,22 @@ abstract class Entity
     if (in_array($name, $this->guarded)) {
       throw new MassAssignmentError(static::class, $name);
     }
+
+    if ($this->immutable) {
+      throw new \RuntimeException("Cannot modify immutable entity property '$name'");
+    }
+
     $this->attributes[$name] = $value;
   }
 
+  /**
+   * Check if an attribute is set.
+   *
+   * This method is used to check if an attribute is set.
+   *
+   * @param string $name
+   * @return bool
+   */
   public function __isset(string $name): bool
   {
     return array_key_exists($name, $this->attributes);
@@ -156,16 +232,55 @@ abstract class Entity
   /**
    * Returns debug information about the entity.
    *
+   * This method returns an array of debug information about the entity.
+   *
    * @return array
    */
   public function __debugInfo(): array
   {
     return [
-      'attributes' => $this->attributes,
-      'deepFetch' => $this->deepFetch,
+      'attributes'    => $this->attributes,
+      'deepFetch'     => $this->deepFetch,
+      'globalScopes'  => $this->globalScopes,
+      'booted'        => $this->booted,
+      'fillable'      => $this->fillable,
+      'guarded'       => $this->guarded,
+      'immutable'     => $this->immutable,
       'relationships' => array_keys($this->relationship)
     ];
   }
+
+  /**
+   * Make the entity immutable.
+   *
+   * This method is used to make the entity immutable.
+   * Immutable means that once the entity is created,
+   * its attributes cannot be changed.
+   *
+   * @return void
+   */
+  public function makeImmutable(): void
+  {
+    $this->immutable = true;
+  }
+
+  /**
+   * Returns a new entity with updated attributes.
+   *
+   * This method returns a new entity with the specified attributes updated.
+   *
+   * @param array $changes
+   * @return static
+   */
+  public function withUpdated(array $changes): static
+  {
+    $clone = clone $this;
+    foreach ($changes as $k => $v) {
+      $clone->attributes[$k] = $v;
+    }
+    return $clone;
+  }
+
 
   /**
    * Returns the eager loaded data for a specific relationship.
@@ -179,7 +294,13 @@ abstract class Entity
     return $this->deepFetch;
   }
 
-
+  /**
+   * Get the integer columns.
+   *
+   * This method returns the integer columns for the entity.
+   *
+   * @return array
+   */
   public function getIntegerColumns(): array
   {
     $integerColumns = ['id']; // Always cast 'id' as integer
@@ -205,6 +326,7 @@ abstract class Entity
     return array_unique($integerColumns);
   }
 
+
   /**
    * Initialize relationships.
    *
@@ -223,16 +345,21 @@ abstract class Entity
    * Get the relationship configuration for a given relationship.
    *
    * @param string $relation The name of the relationship.
+   *
    * @return array|null The relationship configuration, or null if the relationship is not defined.
    */
   public function getRelationshipConfig(string $relation): ?array
   {
     $config = $this->relationship[$relation] ?? null;
 
-    if ($config && $config[0] === Bridge::class && count($config) < 5) {
+    if (!isset($config)) {
+      throw new RelationshipNotDefinedException($relation, static::class);
+    }
+
+    if ($config && $config[0] === Entity::BRIDGE && count($config) < 5) {
       throw new \InvalidArgumentException(
         "Invalid Bridge configuration for {$relation}. " .
-          "Expected format: [Bridge::class, RelatedClass, PivotTable, ParentKey, RelatedKey]"
+          "Expected format: [Entity::BRIDGE, RelatedClass, PivotTable, ParentKey, RelatedKey]"
       );
     }
 
@@ -255,6 +382,9 @@ abstract class Entity
 
   /**
    * Mass assign attributes, throwing error for unfillable keys.
+   *
+   * This method is used to mass assign attributes to the entity.
+   * It throws an error for unfillable keys.
    *
    * @param array $attributes
    *
@@ -286,7 +416,7 @@ abstract class Entity
    * assigned to the entity. If the fillable attribute is empty, all attributes
    * are returned.
    *
-   * @return array
+   * @return array<string, mixed>
    */
   public function getFillableAttributes(): array
   {
@@ -295,6 +425,93 @@ abstract class Entity
       return $this->attributes;
     }
     return array_intersect_key($this->attributes, array_flip($this->fillable));
+  }
+
+  /**
+   * Add a global scope.
+   *
+   * This method adds a global scope to the entity. Global scopes are callbacks
+   * that are run on the query builder before it is executed. They are great for
+   * specifying a common set of constraints that an entity should always have.
+   *
+   * @param string $name
+   * @param callable $callable
+   * @return void
+   */
+  public static function addGlobalScope(string $name, callable $callable): void
+  {
+    // dd("bootTrashable called for " . static::class);
+    static::$globalScopes[$name] = $callable;
+  }
+
+  /**
+   * Boot the entity.
+   *
+   * This method is used to boot the entity. It is called when the entity is first
+   * loaded from the database. It is great for setting up default values,
+   * initializing relationships, and other tasks that need to be done when the
+   * entity is first loaded.
+   *
+   * @return void
+   */
+  public static function bootIfNotBooted(): void
+  {
+    if (!isset(static::$booted[static::class])) {
+      static::$booted[static::class] = true;
+      if (method_exists(static::class, 'bootTrashable')) {
+        static::bootTrashable();
+      }
+    }
+  }
+
+  /**
+   * Remove a global scope.
+   *
+   * This method removes a global scope from the entity. Global scopes are callbacks
+   * that are run on the query builder before it is executed. They are great for
+   * specifying a common set of constraints that an entity should always have.
+   *
+   * @param string $name
+   * @return void
+   */
+  public static function removeGlobalScope(string $name): void
+  {
+    unset(static::$globalScopes[$name]);
+  }
+
+  /**
+   * Get all global scopes.
+   *
+   * This method returns all global scopes that have been added to the entity.
+   *
+   * @return array<callable, string>
+   */
+  public static function getGlobalScopes(): array
+  {
+    return static::$globalScopes;
+  }
+
+  /**
+   * Run boot methods.
+   *
+   * This method runs all boot methods for the entity. Boot methods are
+   * methods that are called when the entity is first loaded from the database.
+   * They are great for setting up default values, initializing relationships,
+   * and other tasks that need to be done when the entity is first loaded.
+   *
+   * @return void
+   */
+  public static function runBootMethods(): void
+  {
+    $class = static::class;
+    if (!isset(self::$booted[$class])) {
+      self::$booted[$class] = true;
+      foreach (get_class_methods($class) as $method) {
+        if (str_starts_with($method, 'boot') && is_callable([$class, $method])) {
+          forward_static_call([$class, $method]);
+        }
+      }
+    }
   }
 
   /**
@@ -331,6 +548,8 @@ abstract class Entity
   /**
    * For date attributes, convert to Carbon instance.
    *
+   * This method is used to convert a date attribute to a Carbon instance.
+   *
    * @param string $key
    *
    * @return ?Carbon
@@ -346,39 +565,32 @@ abstract class Entity
   /**
    * Load a relationship if not already cached in deepFetch.
    *
+   * This method is used to load a relationship for a given relationship name.
+   * If the relationship is not defined, an exception is thrown.
+   * If the relationship is not already loaded, it is loaded.
+   *
    * @param string $relation
    *
    * @return mixed
    */
   protected function loadRelationship(string $relation)
   {
-    if (array_key_exists($relation, $this->deepFetch)) {
-      return $this->deepFetch[$relation];
-    }
-
     if (!isset($this->relationship[$relation])) {
       throw new \Exception("Undefined relationship: {$relation}");
     }
 
-    $config = $this->relationship[$relation];
-    $relClass = $config[0];
-    $relatedEntity = $config[1];
+    [$relClass, $relatedEntity, $key1, $key2] = $this->relationship[$relation] + [null, null];
+    $foreignKey = $key2 ?? $this->guessForeignKey();
 
-    // Check if the relationship is a Bridge
+    // Instantiate handler (no caching)
     if ($relClass === Bridge::class) {
-      // Extract parameters specific to Bridge
-      $pivotTable = $config[2];
-      $parentKey = $config[3];
-      $relatedKey = $config[4];
-      $instance = new Bridge($this, $relatedEntity, $pivotTable, $parentKey, $relatedKey);
+      [$pivotTable, $parentKey, $relatedKey] = [$key1, $key2, null];
+      $handler = new Bridge($this, $relatedEntity, $pivotTable, $parentKey, $relatedKey);
     } else {
-      // Handle other relationships (HasOne, HasMultiple, OwnedBy)
-      $foreignKey = $config[2] ?? $this->guessForeignKey();
-      $instance = new $relClass($this, $relatedEntity, $foreignKey);
+      $handler = new $relClass($this, $relatedEntity, $foreignKey);
     }
 
-    $this->deepFetch[$relation] = $instance;
-    return $instance;
+    return $handler;
   }
 
   /**
@@ -438,6 +650,8 @@ abstract class Entity
   /**
    * Default guess for foreign key: "classname_id".
    *
+   * This method is used to guess the foreign key for a relationship.
+   *
    * @return string
    */
   protected function guessForeignKey(): string
@@ -458,6 +672,22 @@ abstract class Entity
   }
 
   /**
+   * Save batch of entities via EntityMapper.
+   *
+   * @param array $entities
+   *
+   * @return void
+   * @example: Entity::saveBatch(Profile::class, [
+   *   new Profile(['name' => 'John']),
+   *   new Profile(['name' => 'Jane'])
+   * ]);
+   */
+  // public static function saveBatch(string $entityClass, array $entities): void
+  // {
+  //   EntityMapper::insertBatch($entityClass, $entities);
+  // }
+
+  /**
    * Delete the entity from the DB via EntityMapper.
    *
    * @return self
@@ -465,6 +695,24 @@ abstract class Entity
   public function delete(): self
   {
     return EntityMapper::erase($this);
+  }
+
+  /**
+   * Delete one or many records by their primary key.
+   *
+   * @param int|int[] $ids
+   * @return int  Number of rows deleted
+   */
+  public static function destroy(int|array $ids): int
+  {
+    $ids = is_array($ids) ? $ids : [$ids];
+
+    // build a QueryEngine for this entity’s table
+    $deleted = QueryEngine::for(static::class)
+      ->whereIn('id', $ids)
+      ->delete();
+
+    return $deleted;
   }
 
   /**
@@ -477,6 +725,16 @@ abstract class Entity
     return isset($this->attributes['id']) && $this->attributes['id'] !== null;
   }
 
+  /**
+   * Get all records.
+   *
+   * This method returns all records from the database.
+   *
+   * Example:
+   * $posts = Post::all();
+   *
+   * @return array
+   */
   public static function all(): array
   {
     $query = new QueryEngine(static::class);
@@ -484,17 +742,55 @@ abstract class Entity
     return $records->toArray();
   }
 
+  /**
+   * Check if the dataset is empty.
+   *
+   * This method returns true if the dataset is empty, false otherwise.
+   *
+   * Example:
+   * $posts = Post::all();
+   * if ($posts->isEmpty()) {
+   *   echo 'No posts found';
+   * }
+   *
+   * @return bool
+   */
   public function isEmpty(): bool
   {
     return empty($this->records);
   }
 
+  /**
+   * Get the last record.
+   *
+   * This method returns the last record in the dataset.
+   *
+   * Example:
+   * $posts = Post::all();
+   * $lastPost = $posts->last();
+   *
+   * @return ?object
+   */
   public function last(): ?object
   {
     $record = end($this->records);
     return $record ? (object)$record : null;
   }
 
+  /**
+   * Iterate over the dataset.
+   *
+   * This method allows you to iterate over the dataset using a foreach loop.
+   *
+   * Example:
+   * $posts = Post::all();
+   * foreach ($posts as $post) {
+   *   echo $post->title;
+   * }
+   *
+   * @param callable $callback
+   * @return void
+   */
   public function each(callable $callback): void
   {
     foreach ($this->records as $key => $record) {
@@ -502,6 +798,25 @@ abstract class Entity
     }
   }
 
+  /**
+   * Sort the dataset by a specific field.
+   *
+   * This method allows you to sort the dataset in ascending or descending order.
+   *
+   * Example:
+   * $posts = Post::all();
+   * $posts = $posts->sortBy('created_at');
+   *
+   * The above example would sort the posts in ascending order by the created_at field.
+   * If you wanted to sort in descending order, you would pass the second argument as true.
+   *
+   * $posts = Post::all();
+   * $posts = $posts->sortBy('created_at', true);
+   *
+   * @param string $field
+   * @param bool $descending
+   * @return self
+   */
   public function sortBy(string $field, bool $descending = false): self
   {
     $records = $this->records;
@@ -513,22 +828,13 @@ abstract class Entity
 
     return new self($records);
   }
-  /**
-   * Get the values of a specific column from the records.
-   *
-   * @param string $column The name of the column to retrieve.
-   *
-   * @return array An array of column values.
-   */
-  // public function getColumn(string $column): array
-  // {
-  //   return array_map(function ($item) use ($column) {
-  //     return is_object($item) ? $item->{$column} : $item[$column];
-  //   }, $this->attributes);
-  // }
 
   /**
    * Convert entity and any loaded relationships to array form.
+   *
+   * This method is useful for converting an entity and any
+   * loaded relationships to a form that can be easily
+   * serialized or stored in a cache.
    *
    * @return array
    */

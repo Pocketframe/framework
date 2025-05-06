@@ -2,7 +2,7 @@
 
 namespace Pocketframe\PocketORM\Exceptions;
 
-final class MassAssignmentError extends ModelException
+final class MassAssignmentError extends EntityException
 {
   public function __construct(string $modelClass, string $invalidKey)
   {

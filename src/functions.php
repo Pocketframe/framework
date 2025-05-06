@@ -478,10 +478,6 @@ if (!function_exists('config')) {
       }
     }
 
-    // Debug: Show available configs
-    if ($key === 'filesystem') {
-      dd($configs);
-    }
 
     // Traverse the config array
     $keys = explode('.', $key);
@@ -585,7 +581,7 @@ if (!function_exists('error_reporting')) {
  * @return string The generated URL for the named route
  */
 if (!function_exists('route')) {
-  function route(string $name, array $params = []): string
+  function route(string $name, int|array $params = []): string
   {
     global $router;
 
@@ -779,11 +775,11 @@ if (!function_exists('flash_message')) {
  * This function returns a new instance of the QueryEngine class for the specified entity.
  *
  * @param string $entity The entity class name
- * @return \Pocketframe\PocketORM\Database\QueryEngine The QueryEngine instance for the entity
+ * @return \Pocketframe\PocketORM\QueryEngine\QueryEngine The QueryEngine instance for the entity
  */
 if (!function_exists('fromEntity')) {
-  function fromEntity($entity): \Pocketframe\PocketORM\Database\QueryEngine
+  function fromEntity($entity): \Pocketframe\PocketORM\QueryEngine\QueryEngine
   {
-    return new \Pocketframe\PocketORM\Database\QueryEngine($entity);
+    return new \Pocketframe\PocketORM\QueryEngine\QueryEngine($entity);
   }
 }
