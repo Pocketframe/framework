@@ -2,15 +2,16 @@
 
 namespace Pocketframe\PocketORM\Relationships;
 
-use Pocketframe\PocketORM\Database\QueryEngine;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 use Pocketframe\PocketORM\Entity\Entity;
-use Pocketframe\PocketORM\Essentials\DataSet;
 
 /**
  * HasOne: one-to-one relationship where the parent "has one" child.
  */
 class HasOne
 {
+  use RelationshipUtils;
+
   private Entity $parent;
   private string $related;
   private string $foreignKey;
@@ -22,19 +23,20 @@ class HasOne
     $this->foreignKey = $foreignKey;
   }
 
-  public function eagerLoad(array $parents): array
+  public function deepFetch(array $parents): array
   {
-    $parentIds = [];
-    foreach ($parents as $parent) {
-      $parentIds[] = $parent->id;
+    $parentIds = array_map(fn($parent) => $parent->id, $parents);
+    $query = new QueryEngine($this->related);
+    $relatedRecords = $this->chunkedWhereIn($query, $this->foreignKey, $parentIds);
+    // For HasOne, group by foreign key, but only keep the first found (if multiple)
+    $grouped = [];
+    foreach ($relatedRecords as $record) {
+      $fk = $record->{$this->foreignKey} ?? null;
+      if ($fk !== null && !isset($grouped[$fk])) {
+        $grouped[$fk] = $record;
+      }
     }
-
-    // Fetch related records where the child's foreign key is in the parent's ids
-    return (new QueryEngine($this->related))
-      ->whereIn($this->foreignKey, array_unique($parentIds))
-      ->keyBy('id')
-      ->get()
-      ->all();
+    return $grouped;
   }
   public function getForeignKey(): string
   {

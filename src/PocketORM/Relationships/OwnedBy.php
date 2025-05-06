@@ -2,15 +2,16 @@
 
 namespace Pocketframe\PocketORM\Relationships;
 
-use Pocketframe\PocketORM\Database\QueryEngine;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 use Pocketframe\PocketORM\Entity\Entity;
-use Pocketframe\PocketORM\Essentials\DataSet;
 
 /**
  * OwnedBy: belongs-to relationship (the parent "owns" a foreign key referencing another entity's primary key).
  */
 class OwnedBy
 {
+  use RelationshipUtils;
+
   private Entity $parent;
   private string $related;
   private string $foreignKey;
@@ -22,18 +23,26 @@ class OwnedBy
     $this->foreignKey = $foreignKey;
   }
 
-  public function eagerLoad(array $parents): array
+  public function deepFetch(array $parents): array
   {
-    // Extract the foreign key values
+    // Extract foreign keys directly from each parent entity
     $foreignKeys = array_unique(
-      array_column(array_map(fn($p) => (array)$p, $parents), $this->foreignKey)
+      array_map(fn($parent) => $parent->{$this->foreignKey}, $parents)
     );
 
-    return (new QueryEngine($this->related))
-      ->whereIn('id', $foreignKeys)
-      ->keyBy('id')
-      ->get()
-      ->all();
+    $query = new QueryEngine($this->related);
+    $relatedRecords = $this->chunkedWhereIn($query, 'id', $foreignKeys);
+
+    // Group related records by their ID for easy lookup
+    $grouped = [];
+    foreach ($relatedRecords as $record) {
+      $id = $record->id ?? null;
+      if ($id !== null) {
+        $grouped[$id] = $record;
+      }
+    }
+
+    return $grouped;
   }
 
   public function getForeignKey(): string
@@ -48,9 +57,13 @@ class OwnedBy
 
   public function resolve(): ?object
   {
-    // Return the single related record
+    $fkValue = $this->parent->{$this->foreignKey};
+    if ($fkValue === null) {
+      return null;
+    }
+
     return (new QueryEngine($this->related))
-      ->where('id', '=', $this->parent->{$this->foreignKey})
+      ->where('id', '=', $fkValue)
       ->first();
   }
 }
