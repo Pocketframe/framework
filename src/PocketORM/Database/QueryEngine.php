@@ -5,35 +5,39 @@ namespace Pocketframe\PocketORM\Database;
 use Closure;
 use PDO;
 use PDOException;
-use Pocketframe\Database\CursorPagination;
-use Pocketframe\Database\Pagination;
 use Pocketframe\PocketORM\Concerns\DeepFetch;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\DataSet;
-use Pocketframe\PocketORM\Schema\Schema;
+use Pocketframe\PocketORM\Pagination\CursorPagination;
+use Pocketframe\PocketORM\Pagination\Pagination;
 
 class QueryEngine
 {
   use DeepFetch;
 
-  protected string $table        = '';
-  protected array $select        = ['*'];
-  protected array $wheres        = [];
-  protected array $joins         = [];
-  protected array $groups        = [];
-  protected array $havings       = [];
-  protected array $orders        = [];
-  protected ?int $limit          = null;
-  protected array $bindings      = [];
-  protected array $insertData    = [];
-  protected array $updateData    = [];
-  protected bool $isDelete       = false;
-  protected array $rawSelects    = [];
-  protected ?string $keyByColumn = null;
-  protected bool $withTrashed    = false;
-  protected bool $onlyTrashed    = false;
-  protected ?int $offset         = null;
+  protected string $table               = '';
+  protected array $select               = ['*'];
+  protected array $wheres               = [];
+  protected array $joins                = [];
+  protected array $groups               = [];
+  protected array $havings              = [];
+  protected array $orders               = [];
+  protected ?int $limit                 = null;
+  protected array $bindings             = [];
+  protected array $insertData           = [];
+  protected array $updateData           = [];
+  protected bool $isDelete              = false;
+  protected array $rawSelects           = [];
+  protected ?string $keyByColumn        = null;
+  protected bool $withTrashed           = false;
+  protected bool $onlyTrashed           = false;
+  protected ?int $offset                = null;
+  protected static bool $loggingEnabled = false;
+  protected static array $queryLog      = [];
+  public array $disabledGlobalScopes = [];
+  protected array $executedSql          = [];
   private ?string $entityClass;
+  protected float $timeStart = 0.0;
 
   /**
    * Constructor
@@ -45,6 +49,7 @@ class QueryEngine
    */
   public function __construct($entity)
   {
+    // 1) Figure out the entity class and table name
     if (is_object($entity)) {
       $entityClass = get_class($entity);
       if (!is_subclass_of($entityClass, Entity::class)) {
@@ -71,6 +76,11 @@ class QueryEngine
         gettype($entity)
       ));
     }
+
+    // 2) Auto‑boot any bootXYZ() methods (e.g. bootTrashable())
+    if ($this->entityClass) {
+      $this->entityClass::runBootMethods();
+    }
   }
 
   /**
@@ -79,10 +89,38 @@ class QueryEngine
    * @param mixed $entity An Entity class name, instance, or table name string.
    * @return self
    */
-  public static function for($entity): self
+  public static function for(string $entity): self
   {
-    return new self($entity);
+    $entity::bootIfNotBooted();
+    $instance = new static($entity);
+    $instance->entityClass = $entity;
+    return $instance;
   }
+
+  public function scope(string $name, ...$args): self
+  {
+    $scopeMethod = 'scope' . ucfirst($name);
+    if (method_exists($this->entityClass, $scopeMethod)) {
+      array_unshift($args, $this);
+      return call_user_func_array([$this->entityClass, $scopeMethod], $args);
+    }
+    throw new \BadMethodCallException("Scope '$name' not defined on {$this->entityClass}. You can define it in the entity class or check the spelling.");
+  }
+
+
+  protected function applyTenantScope()
+  {
+    if (config('tenant.enabled') === true) {
+      if (in_array(\Pocketframe\PocketORM\Concerns\TenantAware::class, class_uses($this->entityClass))) {
+        $tenantId = $this->entityClass::getTenantId();
+        dd($tenantId);
+        if ($tenantId !== null) {
+          $this->where($this->entityClass::tenantColumn(), '=', $tenantId);
+        }
+      }
+    }
+  }
+
   // SELECT METHODS
 
   /**
@@ -1300,7 +1338,7 @@ class QueryEngine
    *
    * @example ->byDesc('id')
    */
-  public function byDesc(string $column): self
+  public function byDesc(string $column = 'id'): self
   {
     return $this->orderBy($column, 'DESC');
   }
@@ -1315,7 +1353,7 @@ class QueryEngine
    *
    * @example ->byAsc('id')
    */
-  public function byAsc(string $column): self
+  public function byAsc(string $column = 'id'): self
   {
     return $this->orderBy($column, 'ASC');
   }
@@ -1331,6 +1369,9 @@ class QueryEngine
    */
   public function latest(?string $column = null): self
   {
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
     $column = $column ?? 'created_at';
     return $this->orderBy($column, 'DESC');
   }
@@ -1346,6 +1387,9 @@ class QueryEngine
    */
   public function oldest(?string $column = null): self
   {
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
     $column = $column ?? 'created_at';
     return $this->orderBy($column, 'ASC');
   }
@@ -1503,12 +1547,26 @@ class QueryEngine
    */
   public function count(string $column = '*'): int
   {
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
+
+    // Build the COUNT query
     $query = clone $this;
-    $query->select = ["COUNT({$column}) AS aggregate"];
-    $query->limit = null;
+    $query->selectRaw("COUNT($column) AS aggregate");
+    $query->limit  = null;
     $query->offset = null;
-    $result = $query->get()->first();
-    return (int) ($result->aggregate ?? 0);
+
+    $sql  = $query->compileSelect();
+    // executeStatement returns the raw PDOStatement
+    $stmt = $this->executeStatement($sql, $this->bindings);
+
+    // fetchOne as associative
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return isset($row['aggregate'])
+      ? (int)$row['aggregate']
+      : 0;
   }
 
   /**
@@ -1522,6 +1580,9 @@ class QueryEngine
    */
   public function max(string $column)
   {
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
     $query = clone $this;
     $query->select = ["MAX({$column}) AS aggregate"];
     $query->limit = null;
@@ -1541,6 +1602,9 @@ class QueryEngine
    */
   public function min(string $column)
   {
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
     $query = clone $this;
     $query->select = ["MIN({$column}) AS aggregate"];
     $query->limit = null;
@@ -1560,6 +1624,9 @@ class QueryEngine
    */
   public function avg(string $column): float
   {
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
     $query = clone $this;
     $query->select = ["AVG({$column}) AS aggregate"];
     $query->limit = null;
@@ -1579,6 +1646,9 @@ class QueryEngine
    */
   public function sum(string $column)
   {
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
     $query = clone $this;
     $query->select = ["SUM({$column}) AS aggregate"];
     $query->limit = null;
@@ -1600,108 +1670,205 @@ class QueryEngine
    * @example ->paginate(25, 3) // 25 items, jump to page 3
    */
   public function paginate(
-    int $perPage = 15,
-    ?int $currentPage = null,
-    string $pageParam = 'page'
+    int    $perPage     = 15,
+    ?int   $currentPage = null,
+    string $pageParam   = 'page'
   ): Pagination {
-    // Get current page from request if not provided
-    $currentPage = $currentPage ?? ($_GET[$pageParam] ?? 1);
+    // 1) Figure out the page
+    $currentPage = $currentPage ?? (int) ($_GET[$pageParam] ?? 1);
 
-    // Clone query to preserve original state
+    // 2) If no ORDER BY was added upstream, default to id ASC
+    if (empty($this->orders)) {
+      $this->orderBy('id', 'asc');
+    }
+
+    // 3) Clone & count
     $totalQuery = clone $this;
+    $total      = $totalQuery->count();
+    $lastPage   = max((int) ceil($total / $perPage), 1);
+    $offset     = ($currentPage - 1) * $perPage;
 
-    // Get total records count
-    $total = $totalQuery->count();
-
-    // Calculate pagination values
-    $lastPage = max((int) ceil($total / $perPage), 1);
-    $offset = ($currentPage - 1) * $perPage;
-
-    // Get paginated data
-    $data = $this->limit($perPage)
+    // 4) Fetch the slice
+    $dataSet = $this->limit($perPage)
       ->offset($offset)
-      ->get()
-      ->toArray();
+      ->get();
 
     return new Pagination(
-      $data,
-      (int) $currentPage,
+      $dataSet->all(),
+      $currentPage,
       $lastPage,
       $total,
+      $perPage,
+      $pageParam
+    );
+  }
+
+  /**
+   * Paginate using cursor‐based navigation.
+   *
+   * Adds a `direction` query-string so we can tell NEXT (desc) vs PREV (asc).
+   *
+   * @param  int         $perPage      Number of items per page
+   * @param  string|null $cursor       Encoded “last seen” cursor value
+   * @param  string      $cursorColumn Column used for the cursor (default: 'id')
+   * @return CursorPagination
+   */
+  public function cursorPaginate(
+    int     $perPage      = 15,
+    ?string $cursor       = null,
+    string  $cursorColumn = 'id'
+  ): CursorPagination {
+    // 0) Pull from GET if not passed
+    $cursor    = $cursor ?? ($_GET['cursor'] ?? null);
+
+    $direction = strtolower($_GET['direction'] ?? 'desc');
+    // dd($direction);
+    if ($direction !== 'asc') {
+      $direction = 'desc';
+    }
+
+    // 1) Clone builder so we don’t taint original
+    $builder = clone $this;
+    $builder->orders = [];
+    $builder->limit  = null;
+    $builder->offset = null;
+
+    // 2) Order by cursorColumn + direction
+    $builder->orderBy($cursorColumn, $direction);
+
+    // 3) If a cursor exists, add WHERE
+    if ($cursor !== null) {
+      $op = $direction === 'asc' ? '>' : '<';
+      $builder->where($cursorColumn, $op, $cursor);
+    }
+
+    // 4) Grab perPage+1 to detect “has more”
+    $items = $builder
+      ->limit($perPage + 1)
+      ->get()
+      ->all();
+
+    $hasMore = count($items) > $perPage;
+    if ($hasMore) {
+      array_pop($items);
+    }
+
+    // 5) If going **backwards** (asc), reverse, so it displays properly
+    if ($direction === 'asc') {
+      $items = array_reverse($items);
+    }
+
+    // 6) Compute cursors for the two buttons
+    if ($direction === 'desc') {
+      // NEXT: last item’s key; PREV: incoming cursor
+      $nextCursor = $hasMore
+        ? $this->getCursorValue(end($items), $cursorColumn)
+        : null;
+      $prevCursor = $cursor;
+    } else {
+      // PREV-clicked: NEXT should return to the page we came from
+      //          so echo the incoming cursor;
+      //    PREV cursor now is the first item’s key
+      $nextCursor = $cursor;
+      $prevCursor = $hasMore
+        ? $this->getCursorValue(reset($items), $cursorColumn)
+        : null;
+    }
+
+    return new CursorPagination(
+      $items,
+      $nextCursor,
+      $prevCursor,
       $perPage
     );
   }
 
   /**
-   * Paginate using cursor-based navigation
-   *
-   * @param int $perPage Number of items per page
-   * @param string|null $cursor Current cursor value
-   * @param string $cursorColumn Column to use for cursors (default: 'id')
-   * @param string $direction Order direction ('asc' or 'desc')
-   * @return CursorPagination
-   *
-   * @example ->cursorPaginate(15, 'last_seen_id')
-   * @example ->cursorPaginate(25, 'Zm9vYmFy', 'uuid', 'desc')
+   * Extract cursor value from a record
    */
-  public function cursorPaginate(
-    int $perPage = 15,
-    ?string $cursor = null,
-    string $cursorColumn = 'id',
-    string $direction = 'desc'
-  ): CursorPagination {
-    // Store original query state
-    $originalOrders = $this->orders;
-    $originalLimit = $this->limit;
-
-    try {
-      // Always order by cursor column
-      $this->orders = ["$cursorColumn $direction"];
-
-      // Add cursor condition
-      if ($cursor !== null) {
-        $operator = $direction === 'asc' ? '>' : '<';
-        $this->where($cursorColumn, $operator, $cursor);
+  protected function getCursorValue($record, string $cursorColumn): string
+  {
+    // Handle arrays (raw database results)
+    if (is_array($record)) {
+      if (!isset($record[$cursorColumn])) {
+        throw new \RuntimeException("Cursor column {$cursorColumn} not found in results");
       }
-
-      // Get one extra record to check for next page
-      $this->limit = $perPage + 1;
-
-      $data = $this->get()->toArray();
-
-      // Check if there's more data
-      $hasMore = count($data) > $perPage;
-      if ($hasMore) {
-        array_pop($data); // Remove extra record
-      }
-
-      // Determine cursors
-      $nextCursor = $hasMore ? $this->getCursorValue(end($data), $cursorColumn) : null;
-      $prevCursor = $cursor;
-
-      return new CursorPagination(
-        $data,
-        $nextCursor,
-        $prevCursor,
-        $perPage
-      );
-    } finally {
-      // Restore original query state
-      $this->orders = $originalOrders;
-      $this->limit = $originalLimit;
+      return (string) $record[$cursorColumn];
     }
+
+    // Handle Entity objects
+    if (is_object($record) && method_exists($record, 'getAttribute')) {
+      $value = $record->getAttribute($cursorColumn);
+      if ($value === null) {
+        throw new \RuntimeException("Cursor column {$cursorColumn} not found in entity");
+      }
+      return (string) $value;
+    }
+
+    // Fallback for objects with public properties
+    if (is_object($record) && isset($record->{$cursorColumn})) {
+      return (string) $record->{$cursorColumn};
+    }
+
+    throw new \RuntimeException("Cursor column {$cursorColumn} not accessible in record");
   }
 
   /**
-   * Extract cursor value from a record
+   * Process records in chunks to avoid memory overload.
+   *
+   * @param int $chunkSize
+   * @param callable $callback Receives (DataSet $chunk, int $page)
+   * @return void
    */
-  protected function getCursorValue(array $record, string $cursorColumn): string
+  public function chunk(int $chunkSize, callable $callback): void
   {
-    if (!isset($record[$cursorColumn])) {
-      throw new \RuntimeException("Cursor column {$cursorColumn} not found in results");
-    }
+    $page = 0;
+    do {
+      $offset = $page * $chunkSize;
+      $clone = clone $this;
+      $results = $clone->limit($chunkSize)->offset($offset)->get();
+      if (count($results->all()) === 0) {
+        break;
+      }
+      $continue = $callback($results, $page);
+      $page++;
+    } while ($continue !== false);
+  }
 
-    return (string) $record[$cursorColumn];
+  /**
+   * Stream results as a generator, yielding entities one at a time.
+   *
+   * This method can be used to process large datasets in chunks, avoiding memory overload.
+   * It will yield one entity at a time, allowing you to process large datasets in a memory efficient way.
+   *
+   * @param int $batchSize Number of records to fetch per batch (default: 1000)
+   * @param array $options Optional options for the query (e.g. ['orderBy' => 'id', 'direction' => 'asc', 'limit' => 1000])
+   * @return \Generator
+   *
+   * @example
+   *
+   * foreach (QueryEngine::for(User::class)->where('active', '=', 1)->streamEach(50000, ['orderBy' => 'id', 'direction' => 'asc', 'limit' => 1000]) as $user) {
+   *    $user->doSomething();
+   * }
+   *
+   */
+  public function streamEach(int $batchSize = 1000, array $options = []): \Generator
+  {
+    $page = 0;
+    do {
+      $offset = $page * $batchSize;
+      $clone = clone $this;
+      if (isset($options['orderBy'])) {
+        $clone->orderBy($options['orderBy']);
+      }
+      $results = $clone->limit($batchSize)->offset($offset)->get();
+      $entities = $results->all();
+      if (!$entities) break;
+      foreach ($entities as $entity) {
+        yield $entity;
+      }
+      $page++;
+    } while (true);
   }
 
 
@@ -1843,7 +2010,10 @@ class QueryEngine
    */
   public function get(): DataSet
   {
-    $this->applySoftDeleteConditions();
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
+
     $sql = $this->compileSelect();
     $records = $this->executeQuery($sql);
 
@@ -1866,7 +2036,10 @@ class QueryEngine
    */
   public function first(): ?object
   {
-    $this->applySoftDeleteConditions();
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
+
     $this->limit(1);
     $result = $this->get();
     return $result->first();
@@ -1882,7 +2055,9 @@ class QueryEngine
    */
   public function find($id): ?object
   {
-    $this->applySoftDeleteConditions();
+    $this->applyGlobalScopes();
+    $this->applyTenantScope();
+    $this->applyTrashableConditions();
     return $this->where('id', '=', $id)->first();
   }
 
@@ -1906,7 +2081,7 @@ class QueryEngine
   }
 
   /**
-   * Include soft deleted records
+   * Include trash records
    *
    * @return self
    *
@@ -1915,11 +2090,12 @@ class QueryEngine
   public function withTrashed(): self
   {
     $this->withTrashed = true;
+    $this->removeGlobalScope('excludeTrash');
     return $this;
   }
 
   /**
-   * Only include soft deleted records
+   * Only include trash records
    *
    * @return self
    *
@@ -1927,14 +2103,69 @@ class QueryEngine
    */
   public function onlyTrashed(): self
   {
+    $this->removeGlobalScope('excludeTrash');
     $this->onlyTrashed = true;
     return $this;
   }
 
   /**
-   * Apply soft delete conditions
+   * Apply global scopes
    *
-   * Apply soft delete conditions to the query based on the entity class.
+   * Apply global scopes to the query.
+   * This method applies the global scopes defined in the entity class.
+   *
+   * @return void
+   *
+   * @example $this->applyGlobalScopes()
+   */
+  protected function applyGlobalScopes(): void
+  {
+    if (!$this->entityClass) return;
+    $scopes = $this->entityClass::getGlobalScopes();
+    foreach ($scopes as $name => $scope) {
+      if (!isset($this->disabledGlobalScopes[$name])) {
+        $scope($this);
+      }
+    }
+  }
+
+  /**
+   * Remove a global scope
+   *
+   * Remove a global scope.
+   * This method removes a global scope from the current query.
+   *
+   * @param string $scopeName The name of the global scope
+   *
+   * @return self
+   *
+   * @example $this->removeGlobalScope('excludeTrash')
+   */
+  public function removeGlobalScope(string $scopeName): self
+  {
+    $this->disabledGlobalScopes[$scopeName] = true;
+    return $this;
+  }
+
+  /**
+   * Get the disabled global scopes
+   *
+   * Get the disabled global scopes.
+   * This method returns the disabled global scopes for the current query.
+   *
+   * @return array The disabled global scopes
+   *
+   * @example $this->getDisabledGlobalScopes()
+   */
+  public function getDisabledGlobalScopes(): array
+  {
+    return $this->disabledGlobalScopes ?? [];
+  }
+
+  /**
+   * Apply trashable conditions
+   *
+   * Apply trashable conditions to the query based on the entity class.
    * If the entity class is not set, or the table does not have a trash column,
    * then the method does nothing. If the query is set to only include trashed
    * records, then the method adds a WHERE condition to the query where the
@@ -1943,62 +2174,100 @@ class QueryEngine
    * is null.
    * @return void
    */
-  protected function applySoftDeleteConditions(): void
+  protected function applyTrashableConditions(): void
   {
-    // If no entity class is set, do nothing
-    if ($this->entityClass === null) {
-      return;
-    }
-
-    // Get the trash column name from the entity class
     $trashColumn = $this->getEntityTrashColumn();
+    if (!$trashColumn) return;
 
-    // If the table does not have the trash column, do nothing
-    if (!Schema::tableHasColumn($this->table, $trashColumn)) return;
+    // Check if any scope already modified the trash column
+    $hasTrashCondition = $this->hasAnyTrashCondition($trashColumn);
 
-    // If the query is set to only include trashed records, add a WHERE condition
-    // to the query where the trash column is not null
-    if ($this->onlyTrashed) {
+    if ($this->onlyTrashed && !$hasTrashCondition) {
       $this->whereNotNull($trashColumn);
-    }
-    // If the query is set to include trashed records, add a WHERE condition
-    // to the query where the trash column is null
-    elseif (!$this->withTrashed) {
+    } elseif (!$this->withTrashed && !$hasTrashCondition) {
       $this->whereNull($trashColumn);
     }
+  }
+
+  protected function hasAnyTrashCondition(string $column): bool
+  {
+    return $this->hasDirectNullCondition($column) ||
+      $this->hasEquivalentNullCondition($column);
+  }
+
+  protected function hasDirectNullCondition(string $column): bool
+  {
+    foreach ($this->wheres as $where) {
+      if (($where['type'] === 'null' && $where['column'] === $column) ||
+        ($where['type'] === 'basic' && $where['operator'] === '=' && $where['value'] === null)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  protected function hasEquivalentNullCondition(string $column): bool
+  {
+    foreach ($this->wheres as $where) {
+      if (
+        $where['type'] === 'basic' &&
+        $where['column'] === $column &&
+        ($where['operator'] === 'IS' || $where['operator'] === 'IS NOT') &&
+        ($where['value'] === null || $where['value'] === 'NULL')
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if the query has a WHERE condition for a column with a specific value
+   *
+   * @param string $column The column name
+   * @param mixed $value The value to check for
+   * @return bool True if the query has a WHERE condition for the column with the specified value, false otherwise
+   */
+  protected function hasWhereCondition($column, $value)
+  {
+    foreach ($this->wheres as $where) {
+      if ($where['column'] === $column && $where['value'] === $value) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if the query has a WHERE condition for a column with a null value
+   *
+   * @param string $column The column name
+   * @return bool True if the query has a WHERE condition for the column with a null value, false otherwise
+   */
+  protected function hasWhereNullCondition($column)
+  {
+    foreach ($this->wheres as $where) {
+      if ($where['column'] === $column && $where['type'] === 'Null') {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
    * Get the trash column name from the entity class
    *
-   * Get the trash column name from the entity class.
-   * Return the value of the $trashColumn property from the entity class,
-   * or 'trashed_at' if the entity class does not have this property.
-   * @return string The trash column name
-   *
-   * @example $this->getEntityTrashColumn()
+   * @return ?string The trash column name or null if not found
    */
-  private function getEntityTrashColumn(): string
+  private function getEntityTrashColumn(): ?string
   {
-    // Default trash column name
-    $default = 'trashed_at';
-
-    // If no entity class is set, return the default
-    if (!$this->entityClass || !class_exists($this->entityClass)) {
-      return $default;
+    if (!$this->entityClass) return null;
+    $traits = class_uses($this->entityClass);
+    if (in_array(\Pocketframe\PocketORM\Concerns\Trashable::class, $traits)) {
+      return $this->entityClass::getTrashColumn();
     }
-
-    // Get the trash column name from the entity class property
-    // If the property does not exist, return the default
-    try {
-      $reflection = new \ReflectionClass($this->entityClass);
-      $property = $reflection->getProperty('trashColumn');
-      // Bypass visibility
-      $property->setAccessible(true);
-      return $property->getValue() ?? $default;
-    } catch (\ReflectionException $e) {
-      return $default;
-    }
+    return null;
   }
 
   // SQL COMPILATION
@@ -2039,8 +2308,6 @@ class QueryEngine
 
     $sql .= $this->compileWheres();
 
-    $sql .= $this->compileOrders();
-
     if (!empty($this->groups)) {
       $sql .= ' GROUP BY ' . implode(', ', $this->groups);
     }
@@ -2049,12 +2316,14 @@ class QueryEngine
       $sql .= ' HAVING ' . implode(' AND ', $this->havings);
     }
 
-    if (!empty($this->orders)) {
-      $sql .= ' ORDER BY ' . implode(', ', $this->orders);
-    }
+    $sql .= $this->compileOrders();
 
     if ($this->limit !== null) {
       $sql .= " LIMIT {$this->limit}";
+
+      if (isset($this->offset) && $this->offset > 0) {
+        $sql .= " OFFSET {$this->offset}";
+      }
     }
 
     return $sql;
@@ -2186,7 +2455,6 @@ class QueryEngine
 
       $clauses[] = $clause;
     }
-
     return ' WHERE ' . implode(' ', $clauses);
   }
 
@@ -2217,9 +2485,13 @@ class QueryEngine
    */
   protected function executeQuery(string $sql): DataSet
   {
+    // Log the query
+    $this->logSql($sql, $this->bindings);
+
     // Execute the query
     $stmt = $this->executeStatement($sql, $this->bindings);
     $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 
     // Hydrate entities if entity class is set
     if ($this->entityClass && class_exists($this->entityClass)) {
@@ -2281,6 +2553,9 @@ class QueryEngine
    */
   public function toSql(): string
   {
+    $this->applyGlobalScopes();
+    $this->applyTrashableConditions();
+
     // Build SQL
     if (!empty($this->insertData)) {
       return $this->compileInsert();
@@ -2291,6 +2566,122 @@ class QueryEngine
     } else {
       return $this->compileSelect();
     }
+  }
+
+  /**
+   * Get the SQL query string with bindings
+   *
+   * Get the SQL query string with bindings.
+   * This method builds the SQL query string for the current query.
+   *
+   * @return array The SQL query string and bindings
+   *
+   * @example $this->toSqlWithBindings()
+   */
+  public function bindSql(): array
+  {
+    return [
+      'sql' => $this->toSql(),
+      'bindings' => $this->getBindings(),
+    ];
+  }
+
+  /**
+   * Get the SQL query string with bindings
+   *
+   * Get the SQL query string with bindings.
+   * This method builds the SQL query string for the current query.
+   *
+   * @return string The SQL query string with bindings
+   *
+   * @example $this->fullSql()
+   */
+  public function fullSql(): string
+  {
+    $sql = $this->toSql();
+    $bindings = $this->getBindings();
+    $pdo = new \PDO('sqlite::memory:'); // For quoting
+    foreach ($bindings as $binding) {
+      $sql = preg_replace('/\?/', $pdo->quote($binding), $sql, 1);
+    }
+    return $sql;
+  }
+
+  /**
+   * Enable or disable query logging
+   *
+   * Enable or disable query logging.
+   * This method enables or disables query logging for the current query.
+   *
+   * @param bool $enable Whether to enable or disable query logging
+   *
+   * @example $this->enableQueryLog(true)
+   */
+  public static function enableQueryLog(bool $enable = true): void
+  {
+    self::$loggingEnabled = $enable;
+  }
+
+  /**
+   * Get the query log
+   *
+   * Get the query log.
+   * This method returns the query log for the current query.
+   *
+   * @return array The query log
+   *
+   * @example $this->getQueryLog()
+   */
+  public static function getQueryLog(): array
+  {
+    return self::$queryLog;
+  }
+
+
+  /**
+   * Log the SQL query
+   *
+   * Log the SQL query.
+   * This method logs the SQL query string and bindings for debugging purposes.
+   *
+   * @param string $sql The SQL query string
+   * @param array $bindings The bindings for the query
+   * @param array $context Optional context for the query
+   *
+   * @example $this->logSql('SELECT * FROM users', ['id' => 1])
+   */
+  protected function logSql($sql, $bindings = [], $context = null)
+  {
+    $entry = compact('sql', 'bindings');
+    if ($context) {
+      $entry['context'] = $context;
+    }
+
+    $entry['memory'] = memory_get_usage() . ' bytes'; // memory usage
+    $entry['peak_memory'] = memory_get_peak_usage() . ' bytes'; // peak memory usage
+    $entry['time_start'] = $this->timeStart;
+    $entry['time_end'] = microtime(true);
+    $entry['time_total'] = $entry['time_end'] - $entry['time_start'] . ' seconds';
+
+    if (self::$loggingEnabled) {
+      self::$queryLog[] = $entry;
+    }
+    $this->executedSql[] = $entry;
+  }
+
+  /**
+   * Get the executed SQL queries
+   *
+   * Get the executed SQL queries.
+   * This method returns the executed SQL queries for debugging purposes.
+   *
+   * @return array The executed SQL queries
+   *
+   * @example $this->getExecutedSql()
+   */
+  public function getExecutedSql(): array
+  {
+    return $this->executedSql;
   }
 
   /**
@@ -2353,6 +2744,6 @@ class QueryEngine
    */
   public function getBindings(): array
   {
-    return $this->bindings;
+    return $this->bindings ?? [];
   }
 }
