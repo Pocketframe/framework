@@ -62,6 +62,10 @@ class TemplateCompiler
    */
   protected array $eachVarStack = [];
 
+  protected array $slots = [];
+
+protected array $slotStack = [];
+
   /**
    * TemplateCompiler constructor.
    *
@@ -617,45 +621,40 @@ class TemplateCompiler
    */
  protected function compileXComponent(array $matches): string
 {
-    $component    = ucfirst(str_replace('-', '', $matches[1]));
-    $attributes   = $matches[2];
-    $slotContent  = $matches[3];
+    $component = ucfirst(str_replace('-', '', $matches[1]));
+    $attributes = $matches[2];
+    $slotContent = $matches[3];
 
-    // parse attributes into PHP array
-    $propsArr = [];
-    if (preg_match_all('/(\w+)\s*=\s*"([^"]*)"/', $attributes, $attrMatches, PREG_SET_ORDER)) {
-        foreach ($attrMatches as $attr) {
-            $propsArr[$attr[1]] = $attr[2];
-        }
-    }
+    // Parse attributes
+    preg_match_all('/(\w+)=["\']([^"\']*)["\']/', $attributes, $attrMatches);
+    $props = array_combine($attrMatches[1], $attrMatches[2]);
 
-    $propsCode = var_export($propsArr, true);
-    $unique    = '__slot_'.uniqid();
+    // Generate unique ID for slots
+    $slotId = uniqid('slot_');
 
-    // define $attributes so merge() will work
-    $compiled  = "<?php "
-               . "\$__props     = $propsCode; "
-               . "\$attributes  = new \Pocketframe\TemplateEngine\AttributeBag(\$__props); "
-               . "extract(\$__props); "
-               . "\$slot        = <<<{$unique}\n{$slotContent}\n{$unique};\n";
+    // Compile component
+    $compiled = "<?php \n";
+    $compiled .= "// Start component props extraction\n";
+    $compiled .= "\$__props = ".var_export($props, true).";\n";
+    $compiled .= "extract(\$__props);\n";
+    $compiled .= "\$__attributes = new AttributeBag(\$__props);\n";
 
-    $componentClass = "App\\View\\Components\\{$component}";
-    $viewBase       = str_replace('.', '/', strtolower($component));
+    // Process slots
+    $compiled .= "ob_start();\n";
+    $compiled .= "?>$slotContent<?php\n";
+    $compiled .= "\$__slotContent = ob_get_clean();\n";
+    $compiled .= "preg_match_all('/<x-slot\\s+name=\"([\\w-]+)\"[^>]*>(.*?)<\\/x-slot>/s', \$__slotContent, \$__slotMatches);\n";
+    $compiled .= "foreach (\$__slotMatches[1] as \$__index => \$__name) {\n";
+    $compiled .= "    \$__template->slots[\$__name] = \$__slotMatches[2][\$__index];\n";
+    $compiled .= "}\n";
 
-    if (class_exists($componentClass)) {
-        $compiled .= "\$__component = new {$componentClass}(\$__props); "
-                  . "\$__view      = \$__component->render(); "
-                  . "extract(\$__component->props); "
-                  . "include base_path(\$__view);";
-    } else {
-        $compiled .= "if (file_exists(base_path('resources/views/components/{$viewBase}.inline.view.php'))) {"
-                  . "include base_path('resources/views/components/{$viewBase}.inline.view.php');"
-                  . "} else {"
-                  . "include base_path('resources/views/components/{$viewBase}.view.php');"
-                  . "}";
-    }
-
-    $compiled .= " ?>";
+    // Handle component class or inline template
+    $compiled .= "if (class_exists(\$__componentClass = \"App\\\\View\\\\Components\\\\{$component}\")) {\n";
+    $compiled .= "    \$__component = new \$__componentClass(...\$__props);\n";
+    $compiled .= "    include base_path(\$__component->render().'.view.php');\n";
+    $compiled .= "} else {\n";
+    $compiled .= "    include base_path('resources/views/components/".strtolower($component).".view.php');\n";
+    $compiled .= "}\n";
 
     return $compiled;
 }
@@ -671,6 +670,36 @@ class TemplateCompiler
     $this->data = array_merge($this->data, $data);
     return $this;
   }
+
+  protected function compileSlots(string $content): string
+{
+    return preg_replace_callback(
+        '/<x-slot\s+name="([\w-]+)"[^>]*>(.*?)<\/x-slot>/s',
+        function ($matches) {
+            $name = $matches[1];
+            $content = $matches[2];
+            return "<?php \$__template->startSlot('{$name}'); ?>{$content}<?php \$__template->endSlot(); ?>";
+        },
+        $content
+    );
+}
+
+  public function startSlot(string $name): void
+{
+    ob_start();
+    $this->slotStack[] = $name;
+}
+
+public function endSlot(): void
+{
+    $name = array_pop($this->slotStack);
+    $this->slots[$name] = ob_get_clean();
+}
+
+public function getSlot(string $name): string
+{
+    return $this->slots[$name] ?? '';
+}
 
   /**
    * Starts a block section.
