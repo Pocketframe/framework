@@ -12,6 +12,7 @@ use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Pagination\CursorPaginator;
 use Pocketframe\PocketORM\Pagination\Paginator;
+use Pocketframe\PocketORM\Concerns\Trashable;
 
 class QueryEngine
 {
@@ -2626,23 +2627,53 @@ class QueryEngine
    */
   protected function applyTrashableConditions(): void
   {
-    $trashColumn = $this->getEntityTrashColumn();
-    if (!$trashColumn) return;
+    // 1) If there’s no entity or it doesn’t use Trashable, skip
+    if (
+      ! $this->entityClass
+      || ! in_array(Trashable::class, class_uses($this->entityClass), true)
+    ) {
+      return;
+    }
 
-    // Check if any scope already modified the trash column
-    $hasTrashCondition = $this->hasAnyTrashCondition($trashColumn);
+    // 2) Pull column & restore‐value from the entity
+    $col     = ($this->entityClass)::getTrashColumn();
+    $restore = ($this->entityClass)::getRestoreValue();
 
-    if ($this->onlyTrashed && !$hasTrashCondition) {
-      $this->whereNotNull($trashColumn);
-    } elseif (!$this->withTrashed && !$hasTrashCondition) {
-      $this->whereNull($trashColumn);
+    // 3) If someone already added a where on this column, do nothing
+    if ($this->hasAnyTrashCondition($col)) {
+      return;
+    }
+
+    // 4) onlyTrashed(): show records where the trash column ≠ restore
+    if (! empty($this->onlyTrashed)) {
+      if ($restore !== null) {
+        $this->where($col, '!=', $restore);
+      } else {
+        $this->whereNotNull($col);
+      }
+    }
+    // 5) withTrashed(): show everything
+    elseif (! empty($this->withTrashed)) {
+      // no filter
+    }
+    // 6) default: exclude trashed—i.e. trash-column = restore (or IS NULL)
+    else {
+      if ($restore !== null) {
+        $this->where($col, '=', $restore);
+      } else {
+        $this->whereNull($col);
+      }
     }
   }
 
   protected function hasAnyTrashCondition(string $column): bool
   {
-    return $this->hasDirectNullCondition($column) ||
-      $this->hasEquivalentNullCondition($column);
+    foreach ($this->wheres as $where) {
+      if (($where['column'] ?? null) === $column) {
+        return true;
+      }
+    }
+    return false;
   }
 
   protected function hasDirectNullCondition(string $column): bool
