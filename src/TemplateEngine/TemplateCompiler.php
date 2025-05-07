@@ -615,42 +615,50 @@ class TemplateCompiler
    *        [1] component name, [2] attribute string, [3] inner content.
    * @return string The compiled PHP code.
    */
-  protected function compileXComponent(array $matches): string
-  {
-    $component = ucfirst(str_replace('-', '', $matches[1]));
-    $attributes = $matches[2];
-    $slotContent = $matches[3];
+ protected function compileXComponent(array $matches): string
+{
+    $component    = ucfirst(str_replace('-', '', $matches[1]));
+    $attributes   = $matches[2];
+    $slotContent  = $matches[3];
 
+    // parse attributes into PHP array
     $propsArr = [];
     if (preg_match_all('/(\w+)\s*=\s*"([^"]*)"/', $attributes, $attrMatches, PREG_SET_ORDER)) {
-      foreach ($attrMatches as $attr) {
-        $propsArr[$attr[1]] = $attr[2];
-      }
+        foreach ($attrMatches as $attr) {
+            $propsArr[$attr[1]] = $attr[2];
+        }
     }
+
     $propsCode = var_export($propsArr, true);
-    $unique = '__slot_' . uniqid();
-    $compiled = "<?php \$__props = $propsCode; extract(\$__props); \$slot = <<<{$unique}\n" . $slotContent . "\n{$unique};\n";
+    $unique    = '__slot_'.uniqid();
+
+    // define $attributes so merge() will work
+    $compiled  = "<?php "
+               . "\$__props     = $propsCode; "
+               . "\$attributes  = new \Pocketframe\TemplateEngine\AttributeBag(\$__props); "
+               . "extract(\$__props); "
+               . "\$slot        = <<<{$unique}\n{$slotContent}\n{$unique};\n";
 
     $componentClass = "App\\View\\Components\\{$component}";
-    $viewBase = str_replace('.', '/', strtolower($component));
+    $viewBase       = str_replace('.', '/', strtolower($component));
 
     if (class_exists($componentClass)) {
-      $compiled .= "\$__component = new $componentClass(\$__props); ";
-      $compiled .= "\$__view = \$__component->render(); ";
-      $compiled .= "extract(\$__component->props); ";
-      $compiled .= "include base_path(\$__view);";
+        $compiled .= "\$__component = new {$componentClass}(\$__props); "
+                  . "\$__view      = \$__component->render(); "
+                  . "extract(\$__component->props); "
+                  . "include base_path(\$__view);";
     } else {
-      // Check for inline view first, then fallback to regular view
-      $compiled .= "if (file_exists(base_path('resources/views/components/{$viewBase}.inline.view.php'))) {";
-      $compiled .= "include base_path('resources/views/components/{$viewBase}.inline.view.php');";
-      $compiled .= "} else {";
-      $compiled .= "include base_path('resources/views/components/{$viewBase}.view.php');";
-      $compiled .= "}";
+        $compiled .= "if (file_exists(base_path('resources/views/components/{$viewBase}.inline.view.php'))) {"
+                  . "include base_path('resources/views/components/{$viewBase}.inline.view.php');"
+                  . "} else {"
+                  . "include base_path('resources/views/components/{$viewBase}.view.php');"
+                  . "}";
     }
 
     $compiled .= " ?>";
+
     return $compiled;
-  }
+}
 
   /**
    * Adds data to the template for rendering.
