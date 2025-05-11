@@ -11,119 +11,116 @@ use Pocketframe\PocketORM\Relationships\OwnedBy;
 
 trait DeepFetch
 {
+  /**
+   * Stores includes with their optional column lists.
+   *
+   * @var array<string, string[]>
+   */
   private array $includes = [];
 
   /**
-   * Specify relationships to include.
+   * Define relationships to include (with optional columns).
    */
-  public function include(string|array $relation): self
+  public function include(array $relations): static
   {
-    $this->includes = array_merge($this->includes, (array) $relation);
+    foreach ($relations as $relation) {
+      if (str_contains($relation, ':')) {
+        [$name, $cols] = explode(':', $relation, 2);
+        $this->includes[$name] = array_map('trim', explode(',', $cols));
+      } else {
+        $this->includes[$relation] = ['*'];
+      }
+    }
     return $this;
   }
 
   /**
-   * Get the records along with the requested relationships.
+   * Fetch base records and eager-load each include with its columns.
    */
   public function get(): DataSet
   {
-    $records = parent::get(); // Call parent get() to fetch base records
-
-    foreach ($this->includes as $relation) {
-      $this->loadRelation($records, $relation);
+    $records = parent::get();
+    foreach ($this->includes as $rel => $cols) {
+      $this->loadRelation($records, $rel, $cols);
     }
-
     return $records;
   }
 
   /**
-   * Load a specific relation for all records.
+   * Load a single relationship (supports dot notation).
    */
-  private function loadRelation(DataSet $records, string $relation): void
+  private function loadRelation(DataSet $records, string $relation, array $columns): void
   {
-    $relations = explode('.', $relation);
-    $this->batchLoad($records, $relations);
+    $segments = explode('.', $relation);
+    $base     = array_shift($segments);
+
+    $items = $records->all();
+    if (empty($items)) {
+      return;
+    }
+
+    // Instantiate relationship on the first record
+    $firstConfig = reset($items)->getRelationshipConfig($base);
+    $relationship = new $firstConfig[0](...$this->prepareRelationshipArgs(reset($items), $firstConfig));
+
+    // deepFetch with selected columns
+    $relatedMap = $relationship->deepFetch($items, $columns);
+
+    // Decide lookup key
+    $lookupKey = ($relationship instanceof Bridge || $relationship instanceof HasMultiple)
+      ? 'id'
+      : $relationship->getForeignKey();
+
+    // Attach results
+    foreach ($items as $parent) {
+      $key = $parent->{$lookupKey} ?? null;
+      $data = $relatedMap[$key] ?? [];
+      $parent->setDeepFetch($base, $this->formatLoadedData($relationship, $data));
+    }
+
+    // If nested, recurse into the next segment(s)
+    if ($segments) {
+      $nextRelation = implode('.', $segments);
+      $allChild = [];
+      foreach ($relatedMap as $group) {
+        if ($group instanceof DataSet) {
+          $allChild = array_merge($allChild, $group->all());
+        } elseif (is_array($group)) {
+          $allChild = array_merge($allChild, $group);
+        } elseif ($group !== null) {
+          $allChild[] = $group;
+        }
+      }
+      if ($allChild) {
+        $this->loadRelation(new DataSet($allChild), $nextRelation, $columns);
+      }
+    }
   }
 
   /**
-   * Batch deep fetch relationships for multiple records at once.
+   * Prepare the constructor args for each relationship type.
    */
-  private function batchLoad(DataSet $records, array $relations): void
-  {
-    $allRecords = $records->all();
-    if (empty($allRecords)) return;
-
-    $relation = array_shift($relations);
-    $first = reset($allRecords);
-
-    $config = $first->getRelationshipConfig($relation);
-    $relationshipClass = $config[0];
-    $args = $this->prepareRelationshipArgs($first, $config);
-    $relationship = new $relationshipClass(...$args);
-
-    $relatedMap = $relationship->deepFetch($allRecords);
-
-    // Determine lookup key based on relationship type
-    if ($relationship instanceof Bridge || $relationship instanceof HasMultiple) {
-      // For Bridge and HasMultiple, use parent's ID
-      $lookupKey = 'id';
-    } else {
-      // For OwnedBy/HasOne, use foreign key from parent
-      $lookupKey = $relationship->getForeignKey();
-    }
-
-    foreach ($allRecords as $parent) {
-      $keyValue = $parent->{$lookupKey};
-      $parent->setDeepFetch(
-        $relation,
-        $this->formatLoadedData($relationship, $relatedMap[$keyValue] ?? [])
-      );
-    }
-
-    if (!empty($relations)) {
-      $relatedRecords = new DataSet(array_merge(...array_values($relatedMap)));
-      $this->batchLoad($relatedRecords, $relations);
-    }
-  }
-
-
   private function prepareRelationshipArgs(Entity $parent, array $config): array
   {
-    $relationshipClass = $config[0];
-
-    // Handle Bridge relationships specially
-    if ($relationshipClass === Bridge::class) {
-      return [
-        $parent,        // Parent entity
-        $config[1],     // Related class
-        $config[2],     // Pivot table
-        $config[3],     // Parent key
-        $config[4]      // Related key
-      ];
+    if ($config[0] === Bridge::class) {
+      // [Bridge, RelatedClass, pivotTable, parentKey, relatedKey]
+      return [$parent, $config[1], $config[2], $config[3], $config[4]];
     }
-
-    // Default handling for other relationships
-    return [
-      $parent,        // Parent entity
-      $config[1],     // Related class
-      $config[2] ?? null // Foreign key
-    ];
+    // [HasOne/HasMultiple/OwnedBy, RelatedClass, foreignKey]
+    return [$parent, $config[1], $config[2] ?? null];
   }
 
-
   /**
-   * Format the loaded relationship data based on its type.
+   * Format loaded data based on relationship.
    */
   private function formatLoadedData($relationship, $data)
   {
     return match (true) {
       $relationship instanceof HasOne,
-      $relationship instanceof OwnedBy => $data ?? null,
-
+      $relationship instanceof OwnedBy => $data,
       $relationship instanceof HasMultiple,
-      $relationship instanceof Bridge => new DataSet($data ?? []),
-
-      default => null,
+      $relationship instanceof Bridge     => $data instanceof DataSet ? $data : new DataSet($data),
+      default                          => null,
     };
   }
 }

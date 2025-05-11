@@ -24,14 +24,11 @@ class HasMultiple
     $this->foreignKey = $foreignKey;
   }
 
-  public function deepFetch(array $parents): array
+  public function deepFetch(array $parents, array $columns = ['*']): array
   {
-    $parentIds = array_column($parents, 'id');
-
-    $query = new QueryEngine($this->related);
-
+    $parentIds = array_map(fn($p) => $p->id, $parents);
+    $query = (new QueryEngine($this->related))->select($columns);
     $relatedRecords = $this->chunkedWhereIn($query, $this->foreignKey, $parentIds);
-
     return self::groupByKey($relatedRecords, $this->foreignKey);
   }
 
