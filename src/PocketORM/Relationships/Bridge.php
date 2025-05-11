@@ -29,41 +29,30 @@ class Bridge
     $this->relatedKey = $relatedKey;
   }
 
-  public function deepFetch(array $parents): array
+  public function deepFetch(array $parents, array $columns = ['*']): array
   {
-    $parentIds = array_map(fn($parent) => (int)$parent->id, $parents);
+    $parentIds = array_map(fn($p) => $p->id, $parents);
+    $bridgeData = (new QueryEngine($this->bridgeTable))
+      ->whereIn($this->parentKey, $parentIds)
+      ->get()
+      ->all();
 
-    // Bridge table: chunk if needed
-    $bridgeQuery = (new QueryEngine($this->bridgeTable))->withTrashed();
-    $bridgeData = $this->chunkedWhereIn($bridgeQuery, $this->parentKey, $parentIds);
+    $relatedIds = array_column($bridgeData, $this->relatedKey);
+    $relatedQuery = (new QueryEngine($this->related))->select($columns);
+    $relatedRecords = $this->chunkedWhereIn($relatedQuery, 'id', $relatedIds);
 
-    // Related IDs
-    $relatedIds = array_map(
-      'intval',
-      array_unique(array_column($bridgeData, $this->relatedKey))
-    );
-
-    // Related records: chunk if needed
-    $relatedQuery = new QueryEngine($this->related);
-    $traits = class_uses($this->related);
-    if (in_array(\Pocketframe\PocketORM\Concerns\Trashable::class, $traits)) {
-      $relatedQuery->withTrashed();
-    }
-    $relatedRecordsRaw = $this->chunkedWhereIn($relatedQuery, 'id', $relatedIds);
-
-    // Group related records by id for fast lookup
-    $relatedRecords = [];
-    foreach ($relatedRecordsRaw as $record) {
-      $relatedRecords[$record->id] = $record;
+    // Index by ID for fast lookup
+    $indexed = [];
+    foreach ($relatedRecords as $record) {
+      $indexed[$record->id] = $record;
     }
 
-    // Group by parent key
     $mapped = [];
     foreach ($bridgeData as $bridge) {
-      $parentId = (int)$bridge[$this->parentKey];
-      $relatedId = (int)$bridge[$this->relatedKey];
-      if (isset($relatedRecords[$relatedId])) {
-        $mapped[$parentId][] = $relatedRecords[$relatedId];
+      $parentId = $bridge[$this->parentKey];
+      $relatedId = $bridge[$this->relatedKey];
+      if (isset($indexed[$relatedId])) {
+        $mapped[$parentId][] = $indexed[$relatedId];
       }
     }
 

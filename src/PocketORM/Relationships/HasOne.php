@@ -23,10 +23,10 @@ class HasOne
     $this->foreignKey = $foreignKey;
   }
 
-  public function deepFetch(array $parents): array
+  public function deepFetch(array $parents, array $columns = ['*']): array
   {
-    $parentIds = array_map(fn($parent) => $parent->id, $parents);
-    $query = new QueryEngine($this->related);
+    $parentIds = array_map(fn($p) => $p->id, $parents);
+    $query = (new QueryEngine($this->related))->select($columns);
     $relatedRecords = $this->chunkedWhereIn($query, $this->foreignKey, $parentIds);
     // For HasOne, group by foreign key, but only keep the first found (if multiple)
     $grouped = [];
