@@ -21,7 +21,8 @@ trait RelationshipUtils
   {
     $results = [];
     foreach (array_chunk($values, $chunkSize) as $chunk) {
-      $results = array_merge($results, $query->whereIn($column, $chunk)->get()->all());
+      $clonedQuery = clone $query;
+      $results = array_merge($results, $clonedQuery->whereIn($column, $chunk)->get()->all());
     }
     return $results;
   }
