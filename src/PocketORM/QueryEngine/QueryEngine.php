@@ -153,9 +153,10 @@ class QueryEngine
     $records = $this->executeQuery($sql);
 
     // Perform eager loading using DeepFetch’s methods.
-    foreach ($this->includes as $relation) {
-      $this->loadRelation($records, $relation);
+    foreach ($this->includes as $relation => $columns) {
+      $this->loadRelation($records, $relation, $columns);
     }
+
 
     return $records;
   }

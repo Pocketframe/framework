@@ -23,14 +23,11 @@ class OwnedBy
     $this->foreignKey = $foreignKey;
   }
 
-  public function deepFetch(array $parents): array
+  public function deepFetch(array $parents, array $columns = ['*']): array
   {
     // Extract foreign keys directly from each parent entity
-    $foreignKeys = array_unique(
-      array_map(fn($parent) => $parent->{$this->foreignKey}, $parents)
-    );
-
-    $query = new QueryEngine($this->related);
+    $foreignKeys = array_map(fn($p) => $p->{$this->foreignKey}, $parents);
+    $query = (new QueryEngine($this->related))->select($columns);
     $relatedRecords = $this->chunkedWhereIn($query, 'id', $foreignKeys);
 
     // Group related records by their ID for easy lookup
