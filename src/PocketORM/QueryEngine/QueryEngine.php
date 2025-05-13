@@ -1875,13 +1875,35 @@ class QueryEngine
    */
   public function whereHas(string $relation, Closure $callback, string $boolean = 'AND'): self
   {
-    $relatedTable = $relation;
-    $foreignKey = $this->table . '_id';
-    $localKey = 'id';
+    // If it's nested (e.g. "student_registration.student_classes")
+    if (str_contains($relation, '.')) {
+      [$parent, $childPath] = explode('.', $relation, 2);
 
-    return $this->whereExists(function ($q) use ($relatedTable, $foreignKey, $localKey, $callback) {
-      $q->from($relatedTable)
-        ->whereColumn("{$relatedTable}.{$foreignKey}", "{$this->table}.{$localKey}");
+      // Recurse: only keep parents having a $parent with a matching $childPath
+      return $this->whereHas($parent, function (self $q) use ($childPath, $callback) {
+        $q->whereHas($childPath, $callback);
+      }, $boolean);
+    }
+
+    // ---- Base case: single-level relation ----
+
+    // 1) Instantiate a dummy model to get instance relationship config
+    $model       = new $this->entityClass();
+    $cfg         = $model->getRelationshipConfig($relation);
+    [, $relatedClass, $foreignKey] = $cfg;
+
+    // 2) Parent primary key (static helper you added to Entity)
+    $localKey    = $this->entityClass::getPrimaryKey();
+
+    // 3) Build EXISTS sub-query
+    return $this->whereExists(function (self $q) use ($relatedClass, $foreignKey, $localKey, $callback) {
+      $q->from($relatedClass::getTable())
+        ->whereColumn(
+          "{$relatedClass::getTable()}.{$foreignKey}",
+          "{$this->table}.{$localKey}"
+        );
+
+      // Apply the user’s filter
       $callback($q);
     }, $boolean);
   }
@@ -2928,6 +2950,13 @@ class QueryEngine
           $clause .= "{$not}({$nestedClause})";
           break;
 
+        case 'exists':
+          // Build the full sub-query SQL (including its SELECT and WHEREs)
+          $subSql = $where['query']->toSql();
+          // Wrap in EXISTS(...)
+          $clause .= "EXISTS({$subSql})";
+          break;
+
         // Full-text search
         case 'fulltext':
           $clause .= "MATCH({$column}) AGAINST(? IN {$where['mode']} MODE)";
@@ -3089,7 +3118,7 @@ class QueryEngine
   {
     $sql = $this->toSql();
     $bindings = $this->getBindings();
-    $pdo = new \PDO('sqlite::memory:'); // For quoting
+    $pdo = new \PDO('sqlite::memory:');
     foreach ($bindings as $binding) {
       $sql = preg_replace('/\?/', $pdo->quote($binding), $sql, 1);
     }
