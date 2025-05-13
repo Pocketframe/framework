@@ -2,6 +2,7 @@
 
 namespace Pocketframe\PocketORM\Concerns;
 
+use Closure;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Relationships\Bridge;
@@ -13,24 +14,92 @@ trait DeepFetch
 {
   /**
    * Stores includes with their optional column lists.
-   *
    * @var array<string, string[]>
    */
   private array $includes = [];
 
   /**
-   * Define relationships to include (with optional columns).
+   * Stores user callbacks for specific relations.
+   * @var array<string, Closure>
+   */
+  private array $includeCallbacks = [];
+
+  /**
+   * Define relationships to include (with optional columns) and callbacks.
+   * Supports:
+   *   - ['relation']
+   *   - ['relation:col1,col2']
+   *   - ['relation' => Closure]
    */
   public function include(array $relations): static
   {
-    foreach ($relations as $relation) {
-      if (str_contains($relation, ':')) {
-        [$name, $cols] = explode(':', $relation, 2);
-        $this->includes[$name] = array_map('trim', explode(',', $cols));
+    foreach ($relations as $key => $value) {
+      $cols = ['*'];
+
+      // Case: closure provided under a key that may include ":col1,col2"
+      if ($value instanceof Closure) {
+        // $key might be "relation:col1,col2"
+        $def = $key;
+        if (str_contains($def, ':')) {
+          [$name, $colsStr] = explode(':', $def, 2);
+          $cols = array_map('trim', explode(',', $colsStr));
+        } else {
+          $name = $def;
+        }
+        $this->includeCallbacks[$name] = $value;
+
+        // Case: string or default (no callback)
       } else {
-        $this->includes[$relation] = ['*'];
+        // existing logic to handle numeric keys vs. associative, parse ":cols"
+        if (is_int($key)) {
+          $def = $value;
+        } else {
+          $def = $key . (is_string($value) ? ":{$value}" : '');
+        }
+        if (str_contains((string) $def, ':')) {
+          [$name, $colsStr] = explode(':', $def, 2);
+          $cols = array_map('trim', explode(',', $colsStr));
+        } else {
+          $name = (string) $def;
+        }
       }
+
+      $this->includes[$name] = $cols;
     }
+
+    return $this;
+  }
+
+  /**
+   * Filter the parent by a relation **and** eager-load that relation
+   * with the same filters (plus optional column-selection).
+   *
+   * @param  string        $relation        The relation path (supports dot notation)
+   * @param  Closure       $filter          A closure($query) that adds your where() calls
+   * @param  string[]|null $columns         Optional: list of columns to select on the relation
+   * @return static
+   */
+  public function includeWhereHas(string $relation, Closure $filter, ?array $columns = null): static
+  {
+    // 1) Narrow the parent query to only those having a matching relation
+    $this->whereHas($relation, $filter);
+
+    // 2) Prepare the eager-load entry so DeepFetch will pull it in
+    //    We key it by the relation path, and give it a closure that:
+    //      • reapplies the same filters
+    //      • optionally selects specific columns
+    $this->include([
+      $relation => function ($query) use ($filter, $columns) {
+        // re-apply your filters to the eager-load query
+        $filter($query);
+
+        // if columns specified, select only those
+        if ($columns !== null) {
+          $query->select($columns);
+        }
+      }
+    ]);
+
     return $this;
   }
 
@@ -53,35 +122,36 @@ trait DeepFetch
   {
     $segments = explode('.', $relation);
     $base     = array_shift($segments);
+    $items    = $records->all();
 
-    $items = $records->all();
     if (empty($items)) {
       return;
     }
 
-    // Instantiate relationship on the first record
     $firstConfig = reset($items)->getRelationshipConfig($base);
     $relationship = new $firstConfig[0](...$this->prepareRelationshipArgs(reset($items), $firstConfig));
 
-    // deepFetch with selected columns
+    // Apply user callback if exists
+    if (isset($this->includeCallbacks[$base])) {
+      ($this->includeCallbacks[$base])($relationship->getQueryBuilder());
+    }
+
     $relatedMap = $relationship->deepFetch($items, $columns);
 
-    // Decide lookup key
     $lookupKey = ($relationship instanceof Bridge || $relationship instanceof HasMultiple)
       ? 'id'
       : $relationship->getForeignKey();
 
-    // Attach results
     foreach ($items as $parent) {
-      $key = $parent->{$lookupKey} ?? null;
+      $key  = $parent->{$lookupKey} ?? null;
       $data = $relatedMap[$key] ?? [];
       $parent->setDeepFetch($base, $this->formatLoadedData($relationship, $data));
     }
 
-    // If nested, recurse into the next segment(s)
     if ($segments) {
       $nextRelation = implode('.', $segments);
-      $allChild = [];
+      $allChild      = [];
+
       foreach ($relatedMap as $group) {
         if ($group instanceof DataSet) {
           $allChild = array_merge($allChild, $group->all());
@@ -91,6 +161,7 @@ trait DeepFetch
           $allChild[] = $group;
         }
       }
+
       if ($allChild) {
         $this->loadRelation(new DataSet($allChild), $nextRelation, $columns);
       }
@@ -103,10 +174,8 @@ trait DeepFetch
   private function prepareRelationshipArgs(Entity $parent, array $config): array
   {
     if ($config[0] === Bridge::class) {
-      // [Bridge, RelatedClass, pivotTable, parentKey, relatedKey]
       return [$parent, $config[1], $config[2], $config[3], $config[4]];
     }
-    // [HasOne/HasMultiple/OwnedBy, RelatedClass, foreignKey]
     return [$parent, $config[1], $config[2] ?? null];
   }
 
@@ -117,10 +186,10 @@ trait DeepFetch
   {
     return match (true) {
       $relationship instanceof HasOne,
-      $relationship instanceof OwnedBy => $data,
+      $relationship instanceof OwnedBy     => $data,
       $relationship instanceof HasMultiple,
-      $relationship instanceof Bridge     => $data instanceof DataSet ? $data : new DataSet($data),
-      default                          => null,
+      $relationship instanceof Bridge      => $data instanceof DataSet ? $data : new DataSet($data),
+      default                             => null,
     };
   }
 }
