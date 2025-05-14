@@ -94,6 +94,8 @@ abstract class Entity
    */
   protected array $deepFetch = [];
 
+  protected static string $primaryKey = 'id';
+
   /**
    * Trash column name
    *
@@ -262,6 +264,16 @@ abstract class Entity
   public function makeImmutable(): void
   {
     $this->immutable = true;
+  }
+
+  /**
+   * Get the primary key column name.
+   *
+   * @return string
+   */
+  public static function getPrimaryKey(): string
+  {
+    return static::$primaryKey;
   }
 
   /**
@@ -441,7 +453,7 @@ abstract class Entity
   public static function addGlobalScope(string $name, callable $callable): void
   {
     // dd("bootTrashable called for " . static::class);
-    static::$globalScopes[$name] = $callable;
+    static::$globalScopes[static::class][$name] = $callable;
   }
 
   /**
@@ -476,7 +488,7 @@ abstract class Entity
    */
   public static function removeGlobalScope(string $name): void
   {
-    unset(static::$globalScopes[$name]);
+    unset(static::$globalScopes[static::class][$name]);
   }
 
   /**
@@ -488,7 +500,7 @@ abstract class Entity
    */
   public static function getGlobalScopes(): array
   {
-    return static::$globalScopes;
+    return static::$globalScopes[static::class] ?? [];
   }
 
   /**
