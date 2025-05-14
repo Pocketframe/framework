@@ -79,25 +79,33 @@ trait DeepFetch
    * @param  string[]|null $columns         Optional: list of columns to select on the relation
    * @return static
    */
-  public function includeWhereHas(string $relation, Closure $filter, ?array $columns = null): static
+  public function includeWhereHas(string $relationPath, Closure $filter, array $columns = ['*']): static
   {
-    // 1) Narrow the parent query to only those having a matching relation
-    $this->whereHas($relation, $filter);
+    // 1) Separate the first segment from the rest
+    if (str_contains($relationPath, '.')) {
+      [$root, $rest] = explode('.', $relationPath, 2);
+    } else {
+      $root = $relationPath;
+      $rest = null;
+    }
 
-    // 2) Prepare the eager-load entry so DeepFetch will pull it in
-    //    We key it by the relation path, and give it a closure that:
-    //      • reapplies the same filters
-    //      • optionally selects specific columns
+    // 2) Apply the filter only to the ROOT relation
+    $this->whereHas($root, $filter);
+
+    // 3) Eager‐load the full path:
+    //    - For the root, we reapply the same filter (and select cols).
+    //    - For the nested rest (if any), we eager-load it without reapplying root filters.
     $this->include([
-      $relation => function ($query) use ($filter, $columns) {
-        // re-apply your filters to the eager-load query
-        $filter($query);
-
-        // if columns specified, select only those
-        if ($columns !== null) {
-          $query->select($columns);
+      // root segment
+      $root => function ($q) use ($filter, $columns) {
+        $filter($q);
+        if ($columns !== ['*']) {
+          $q->select($columns);
         }
-      }
+      },
+
+      // nested (pass through the remainder of the path)
+      $relationPath => null,
     ]);
 
     return $this;

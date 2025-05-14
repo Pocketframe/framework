@@ -2595,6 +2595,7 @@ class QueryEngine
   protected function applyGlobalScopes(): void
   {
     if (!$this->entityClass) return;
+    // Get scopes specific to the queried entity
     $scopes = $this->entityClass::getGlobalScopes();
     foreach ($scopes as $name => $scope) {
       if (!isset($this->disabledGlobalScopes[$name])) {
@@ -2650,24 +2651,40 @@ class QueryEngine
    */
   protected function applyTrashableConditions(): void
   {
-    // 1) If there’s no entity or it doesn’t use Trashable, skip
+    // 0) No entity? nothing to do
+    if (! $this->entityClass) {
+      return;
+    }
+
+    // 1) Only proceed if the model uses the Trashable trait
+    //    class_uses only returns traits used directly on this class,
+    //    not on parents—if you need inherited traits, use class_uses_recursive().
+    if (! in_array(
+      \Pocketframe\PocketORM\Concerns\Trashable::class,
+      class_uses($this->entityClass),
+      true
+    )) {
+      return;
+    }
+
+    // 2) Make sure the getters actually exist before calling them
     if (
-      ! $this->entityClass
-      || ! in_array(Trashable::class, class_uses($this->entityClass), true)
+      ! method_exists($this->entityClass, 'getTrashColumn')
+      || ! method_exists($this->entityClass, 'getRestoreValue')
     ) {
       return;
     }
 
-    // 2) Pull column & restore‐value from the entity
-    $col     = ($this->entityClass)::getTrashColumn();
-    $restore = ($this->entityClass)::getRestoreValue();
+    // 3) Pull column & restore‐value
+    $col     = $this->entityClass::getTrashColumn();
+    $restore = $this->entityClass::getRestoreValue();
 
-    // 3) If someone already added a where on this column, do nothing
+    // 4) If someone already added a where on this column, do nothing
     if ($this->hasAnyTrashCondition($col)) {
       return;
     }
 
-    // 4) onlyTrashed(): show records where the trash column ≠ restore
+    // 5) onlyTrashed(): show records where trash-column ≠ restore
     if (! empty($this->onlyTrashed)) {
       if ($restore !== null) {
         $this->where($col, '!=', $restore);
@@ -2675,11 +2692,11 @@ class QueryEngine
         $this->whereNotNull($col);
       }
     }
-    // 5) withTrashed(): show everything
+    // 6) withTrashed(): show everything
     elseif (! empty($this->withTrashed)) {
       // no filter
     }
-    // 6) default: exclude trashed—i.e. trash-column = restore (or IS NULL)
+    // 7) default: exclude trashed—i.e. trash-column = restore (or IS NULL)
     else {
       if ($restore !== null) {
         $this->where($col, '=', $restore);
@@ -3118,7 +3135,7 @@ class QueryEngine
   {
     $sql = $this->toSql();
     $bindings = $this->getBindings();
-    $pdo = new \PDO('sqlite::memory:');
+    $pdo = new \PDO('sqlite::memory:'); // For quoting
     foreach ($bindings as $binding) {
       $sql = preg_replace('/\?/', $pdo->quote($binding), $sql, 1);
     }
