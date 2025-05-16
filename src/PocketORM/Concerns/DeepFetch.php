@@ -129,34 +129,33 @@ trait DeepFetch
    */
   private function loadRelation(DataSet $records, string $relationPath, array $columns): void
   {
-    // Split “posts.comments” into [“posts”, “comments”]
     $segments = explode('.', $relationPath);
     $base     = array_shift($segments);
     $nested   = $segments ? implode('.', $segments) : null;
+    $items    = $records->all();
 
-    $items = $records->all();
     if (empty($items)) {
       return;
     }
 
-    // 1) Instantiate the relationship handler for the base segment
+    // Instantiate the relationship handler
     $config       = reset($items)->getRelationshipConfig($base);
     $relationship = new $config[0](...$this->prepareRelationshipArgs(reset($items), $config));
 
-    // 2) Start a fresh QueryEngine for this relation and select columns
+    // 1) Start a fresh engine and select desired columns
     $engine = $relationship->getQueryEngine()->select($columns);
 
-    // 3) Apply any user callback: full-path (posts.comments) wins over base (posts)
+    // 2) Apply callback: full-path callback takes precedence over base
     if (isset($this->includeCallbacks[$relationPath])) {
       ($this->includeCallbacks[$relationPath])($engine);
     } elseif (isset($this->includeCallbacks[$base])) {
       ($this->includeCallbacks[$base])($engine);
     }
 
-    // 4) Fetch the related records using the (possibly) filtered engine
+    // 3) Fetch related records using the filtered engine
     $relatedMap = $relationship->deepFetchUsingEngine($items, $engine);
 
-    // 5) Map results back onto each parent
+    // 4) Determine lookup key and map results back to parents
     $lookupKey = ($relationship instanceof Bridge || $relationship instanceof HasMultiple)
       ? 'id'
       : $relationship->getForeignKey();
@@ -172,7 +171,7 @@ trait DeepFetch
       }
     }
 
-    // 6) Recurse for nested segments (e.g. “comments”)
+    // 5) Recurse for nested relations
     if ($nested) {
       $childRecords = [];
       foreach ($relatedMap as $group) {
@@ -184,11 +183,13 @@ trait DeepFetch
           $childRecords[] = $group;
         }
       }
+
       if (!empty($childRecords)) {
         $this->loadRelation(new DataSet($childRecords), $nested, $columns);
       }
     }
   }
+
 
 
   /**
