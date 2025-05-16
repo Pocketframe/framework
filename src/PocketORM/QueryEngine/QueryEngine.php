@@ -2901,16 +2901,26 @@ class QueryEngine
     }
 
     // ── DEDUPE: remove duplicate where entries ───────────────
-    $unique = [];
-    foreach ($this->wheres as $where) {
-      // serialize the array structure as a unique key
-      $key = serialize($where);
-      if (!isset($unique[$key])) {
-        $unique[$key] = $where;
+    $seenTrash = false;
+    $filtered  = [];
+    foreach ($this->wheres as $w) {
+      $col = $w['column'] ?? '';
+      // match a NULL‐type on trashed_at (table alias allowed)
+      if (
+        $w['type'] === 'null'
+        && !$w['not']
+        && (trim($col) === 'trashed_at' || str_ends_with($col, '.trashed_at'))
+      ) {
+        if (! $seenTrash) {
+          $filtered[] = $w;
+          $seenTrash  = true;
+        }
+        // otherwise skip this duplicate trash filter
+      } else {
+        $filtered[] = $w;
       }
     }
-    // overwrite with only unique where-clauses
-    $this->wheres = array_values($unique);
+    $this->wheres = $filtered;
 
     // ── NOW BUILD the SQL from deduped $this->wheres ─────────
     $clauses = [];
