@@ -2,12 +2,9 @@
 
 namespace Pocketframe\PocketORM\Relationships;
 
-use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 use Pocketframe\PocketORM\Entity\Entity;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 
-/**
- * HasOne: one-to-one relationship where the parent "has one" child.
- */
 class HasOne
 {
   use RelationshipUtils;
@@ -25,19 +22,42 @@ class HasOne
 
   public function deepFetch(array $parents, array $columns = ['*']): array
   {
-    $parentIds = array_map(fn($p) => $p->id, $parents);
-    $query = (new QueryEngine($this->related))->select($columns);
-    $relatedRecords = $this->chunkedWhereIn($query, $this->foreignKey, $parentIds);
-    // For HasOne, group by foreign key, but only keep the first found (if multiple)
+    $parentIds = array_map(fn(Entity $p) => $p->id, $parents);
+    $query     = new QueryEngine($this->related);
+    $records   = $this->chunkedWhereIn($query->select($columns), $this->foreignKey, $parentIds);
+
     $grouped = [];
-    foreach ($relatedRecords as $record) {
-      $fk = $record->{$this->foreignKey} ?? null;
+    foreach ($records as $rec) {
+      $fk = $rec->{$this->foreignKey} ?? null;
       if ($fk !== null && !isset($grouped[$fk])) {
-        $grouped[$fk] = $record;
+        $grouped[$fk] = $rec;
       }
     }
     return $grouped;
   }
+
+  public function deepFetchUsingEngine(array $parents, QueryEngine $engine): array
+  {
+    $parentIds = array_map(fn(Entity $p) => $p->id, $parents);
+    $records   = $this->chunkedWhereIn($engine, $this->foreignKey, $parentIds);
+
+    $grouped = [];
+    foreach ($records as $rec) {
+      $fk = $rec->{$this->foreignKey} ?? null;
+      if ($fk !== null && !isset($grouped[$fk])) {
+        $grouped[$fk] = $rec;
+      }
+    }
+    return $grouped;
+  }
+
+  public function get(): ?object
+  {
+    return (new QueryEngine($this->related))
+      ->where($this->foreignKey, '=', $this->parent->id)
+      ->first();
+  }
+
   public function getForeignKey(): string
   {
     return $this->foreignKey;
@@ -46,12 +66,5 @@ class HasOne
   public function getParentKey(): string
   {
     return 'id';
-  }
-
-  public function get(): ?object
-  {
-    return (new QueryEngine($this->related))
-      ->where($this->foreignKey, '=', $this->parent->id)
-      ->first();
   }
 }
