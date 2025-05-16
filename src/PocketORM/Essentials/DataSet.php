@@ -132,6 +132,18 @@ class DataSet implements IteratorAggregate, Countable, ArrayAccess
   }
 
   /**
+   * Join a column of this dataset into a string.
+   *
+   * @param string $glue   What to insert between values
+   * @param string $column The name of the column to join
+   * @return string
+   */
+  public function join(string $glue, string $column): string
+  {
+    return implode($glue, $this->pluck($column));
+  }
+
+  /**
    * Group the dataset by a key.
    *
    * The callback function takes an Entity as its argument.
