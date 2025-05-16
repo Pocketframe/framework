@@ -12,7 +12,7 @@ use Pocketframe\PocketORM\Exceptions\MassAssignmentError;
 use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 use Pocketframe\PocketORM\Relationships\HasOne;
 use Pocketframe\PocketORM\Relationships\HasMultiple;
-use Pocketframe\PocketORM\Relationships\OwnedBy;
+use Pocketframe\PocketORM\Relationships\BelongsTo;
 use Pocketframe\PocketORM\Relationships\Bridge;
 use Pocketframe\PocketORM\Relationships\RelationshipNotDefinedException;
 use Pocketframe\PocketORM\Schema\Schema;
@@ -21,7 +21,7 @@ use Pocketframe\PocketORM\Schema\Schema;
  * Base Active Record–style Entity class.
  *
  * Features:
- * - 'relationship' array for defining relationships (HasOne, HasMultiple, OwnedBy, Bridge)
+ * - 'relationship' array for defining relationships (HasOne, HasMultiple, BelongsTo, Bridge)
  * - fillable/guarded attributes
  * - timestamp handling via HasTimeStamps
  * - eager loading cache
@@ -67,7 +67,7 @@ abstract class Entity
    * protected array $relationship = [
    *   'profile' => [Entity::HAS_ONE, Profile::class, 'user_id'],
    *   'posts'   => [Entity::HAS_MULTIPLE, Post::class, 'post_id'],
-   *   'role'    => [Entity::OWNED_BY, Role::class, 'role_id'],
+   *   'role'    => [Entity::BELONGS_TO, Role::class, 'role_id'],
    *   'groups'  => [Entity::BRIDGE, Group::class, 'user_groups', 'user_id', 'group_id']
    * ];
    */
@@ -129,7 +129,7 @@ abstract class Entity
   // Relationship type constants for convenience
   const HAS_ONE      = HasOne::class;
   const HAS_MULTIPLE = HasMultiple::class;
-  const OWNED_BY     = OwnedBy::class;
+  const BELONGS_TO     = BelongsTo::class;
   const BRIDGE       = Bridge::class;
 
   /**
@@ -172,7 +172,7 @@ abstract class Entity
 
       // If it’s a BELONGS-TO or HAS-ONE, immediately resolve to a single model:
       if (
-        $handler instanceof \Pocketframe\PocketORM\Relationships\OwnedBy
+        $handler instanceof \Pocketframe\PocketORM\Relationships\BelongsTo
         || $handler instanceof \Pocketframe\PocketORM\Relationships\HasOne
       ) {
         $resolved = $handler->resolve();
@@ -328,7 +328,7 @@ abstract class Entity
           break;
         case self::HAS_ONE:
         case self::HAS_MULTIPLE:
-        case self::OWNED_BY:
+        case self::BELONGS_TO:
           // Third element is the foreign key
           $integerColumns[] = $config[2];
           break;
@@ -591,15 +591,22 @@ abstract class Entity
       throw new \Exception("Undefined relationship: {$relation}");
     }
 
-    [$relClass, $relatedEntity, $key1, $key2] = $this->relationship[$relation] + [null, null];
-    $foreignKey = $key2 ?? $this->guessForeignKey();
+    $config = $this->relationship[$relation];
 
-    // Instantiate handler (no caching)
-    if ($relClass === Bridge::class) {
-      [$pivotTable, $parentKey, $relatedKey] = [$key1, $key2, null];
-      $handler = new Bridge($this, $relatedEntity, $pivotTable, $parentKey, $relatedKey);
+    if ($config[0] === Bridge::class) {
+      // Bridge: [Bridge, RelatedClass, pivotTable, parentKey, relatedKey]
+      [, $relatedEntity, $pivotTable, $parentKey, $relatedKey] = $config;
+      $handler = new Bridge(
+        $this,
+        $relatedEntity,
+        $pivotTable,
+        $parentKey,
+        $relatedKey
+      );
     } else {
-      $handler = new $relClass($this, $relatedEntity, $foreignKey);
+      // HasOne/HasMany/OwnedBy: [Type, RelatedClass, foreignKey]
+      [, $relatedEntity, $foreignKey] = $config;
+      $handler = new $config[0]($this, $relatedEntity, $foreignKey);
     }
 
     return $handler;
@@ -656,6 +663,39 @@ abstract class Entity
 
     throw new \BadMethodCallException(
       "Undefined method: " . static::class . "::$name"
+    );
+  }
+
+  public function relation(string $name)
+  {
+    // 1) Grab the raw config
+    $config = $this->getRelationshipConfig($name);
+
+    // 2) If it’s a Bridge relationship, it must have 5 slots
+    if ($config[0] === self::BRIDGE) {
+      // [0] = Bridge class
+      // [1] = related entity class
+      // [2] = pivot table name
+      // [3] = parent key column in pivot
+      // [4] = related key column in pivot
+      [, $relatedEntity, $pivotTable, $parentKey, $relatedKey] = $config;
+
+      return new Bridge(
+        $this,           // entity type
+        $relatedEntity,  // e.g. Tag::class
+        $pivotTable,     // e.g. 'category_tags'
+        $parentKey,      // e.g. 'category_id'
+        $relatedKey      // e.g. 'tag_id'
+      );
+    }
+
+    // 3) Otherwise it’s a HasOne / HasMultiple / OwnedBy
+    [, $relatedEntity, $foreignKey] = $config;
+
+    return new $config[0](
+      $this,
+      $relatedEntity,
+      $foreignKey
     );
   }
 
