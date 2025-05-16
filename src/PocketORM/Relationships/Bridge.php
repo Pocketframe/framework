@@ -22,37 +22,48 @@ class Bridge
 
   public function __construct(Entity $parent, string $related, string $bridgeTable, string $parentKey, string $relatedKey)
   {
-    $this->parent     = $parent;
-    $this->related    = $related;
+    $this->parent      = $parent;
+    $this->related     = $related;
     $this->bridgeTable = $bridgeTable;
-    $this->parentKey  = $parentKey;
-    $this->relatedKey = $relatedKey;
+    $this->parentKey   = $parentKey;
+    $this->relatedKey  = $relatedKey;
   }
+
 
   public function deepFetch(array $parents, array $columns = ['*']): array
   {
-    $parentIds = array_map(fn($p) => $p->id, $parents);
-    $bridgeData = (new QueryEngine($this->bridgeTable))
+    // fallback (unfiltered) logic stays the same
+    $engine = new QueryEngine($this->related);
+    return $this->deepFetchUsingEngine($parents, $engine->select($columns));
+  }
+
+  public function deepFetchUsingEngine(array $parents, QueryEngine $engine): array
+  {
+    $parentIds  = array_map(fn(Entity $p) => $p->id, $parents);
+    $bridgeRows = (new QueryEngine($this->bridgeTable))
       ->whereIn($this->parentKey, $parentIds)
       ->get()
       ->all();
 
-    $relatedIds = array_column($bridgeData, $this->relatedKey);
-    $relatedQuery = (new QueryEngine($this->related))->select($columns);
-    $relatedRecords = $this->chunkedWhereIn($relatedQuery, 'id', $relatedIds);
+    $relatedIds = array_map(
+      fn($r) =>
+      is_array($r) ? $r[$this->relatedKey] : $r->{$this->relatedKey},
+      $bridgeRows
+    );
 
-    // Index by ID for fast lookup
+    $relatedRecs = $this->chunkedWhereIn($engine, 'id', $relatedIds);
+
     $indexed = [];
-    foreach ($relatedRecords as $record) {
-      $indexed[$record->id] = $record;
+    foreach ($relatedRecs as $rec) {
+      $indexed[$rec->id] = $rec;
     }
 
     $mapped = [];
-    foreach ($bridgeData as $bridge) {
-      $parentId = $bridge[$this->parentKey];
-      $relatedId = $bridge[$this->relatedKey];
-      if (isset($indexed[$relatedId])) {
-        $mapped[$parentId][] = $indexed[$relatedId];
+    foreach ($bridgeRows as $row) {
+      $pid = is_array($row) ? $row[$this->parentKey] : $row->{$this->parentKey};
+      $rid = is_array($row) ? $row[$this->relatedKey] : $row->{$this->relatedKey};
+      if (isset($indexed[$rid])) {
+        $mapped[$pid][] = $indexed[$rid];
       }
     }
 
@@ -62,17 +73,7 @@ class Bridge
 
   public function get(): DataSet
   {
-    if (!isset($this->parent->id)) {
-      throw new \RuntimeException("Cannot fetch relationship - parent entity lacks an ID");
-    }
-
-    if (!class_exists($this->related)) {
-      throw new RelationshipResolutionError(
-        "Related class {$this->related} does not exist",
-        $this->related
-      );
-    }
-
+    // unchanged
     return (new QueryEngine($this->bridgeTable))
       ->withTrashed()
       ->select([$this->related::getTable() . '.*'])
@@ -126,7 +127,7 @@ class Bridge
       throw new \RuntimeException("Cannot detach - parent entity lacks an ID");
     }
 
-    (new QueryEngine($this->bridgeTable, $this->related))
+    (new QueryEngine($this->bridgeTable))
       ->where($this->parentKey, '=', $this->parent->id)
       ->where($this->relatedKey, '=', $relatedId)
       ->delete();

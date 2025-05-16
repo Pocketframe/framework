@@ -5,10 +5,11 @@ namespace Pocketframe\PocketORM\Concerns;
 use Closure;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\Essentials\DataSet;
+use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 use Pocketframe\PocketORM\Relationships\Bridge;
 use Pocketframe\PocketORM\Relationships\HasMultiple;
 use Pocketframe\PocketORM\Relationships\HasOne;
-use Pocketframe\PocketORM\Relationships\OwnedBy;
+use Pocketframe\PocketORM\Relationships\BelongsTo;
 
 trait DeepFetch
 {
@@ -136,16 +137,21 @@ trait DeepFetch
       return;
     }
 
-    $firstConfig = reset($items)->getRelationshipConfig($base);
+    $firstConfig  = reset($items)->getRelationshipConfig($base);
     $relationship = new $firstConfig[0](...$this->prepareRelationshipArgs(reset($items), $firstConfig));
 
-    // Apply user callback if exists
+    // ── START HERE: build your engine on the related table
+    $engine = $relationship->getQueryEngine()->select($columns);
+
+    // ── apply any user‐provided filter
     if (isset($this->includeCallbacks[$base])) {
-      ($this->includeCallbacks[$base])($relationship->getQueryBuilder());
+      ($this->includeCallbacks[$base])($engine);
     }
 
-    $relatedMap = $relationship->deepFetch($items, $columns);
+    // ── do the filtered deep-fetch
+    $relatedMap = $relationship->deepFetchUsingEngine($items, $engine);
 
+    // decide which key to use for lookup
     $lookupKey = ($relationship instanceof Bridge || $relationship instanceof HasMultiple)
       ? 'id'
       : $relationship->getForeignKey();
@@ -153,9 +159,14 @@ trait DeepFetch
     foreach ($items as $parent) {
       $key  = $parent->{$lookupKey} ?? null;
       $data = $relatedMap[$key] ?? [];
-      $parent->setDeepFetch($base, $this->formatLoadedData($relationship, $data));
+      if ($relationship instanceof HasOne || $relationship instanceof BelongsTo) {
+        $parent->setDeepFetch($base, $data ?: null);
+      } else {
+        $parent->setDeepFetch($base, new DataSet($data));
+      }
     }
 
+    // handle nested ("comments.user") includes if any
     if ($segments) {
       $nextRelation = implode('.', $segments);
       $allChild      = [];
@@ -176,6 +187,7 @@ trait DeepFetch
     }
   }
 
+
   /**
    * Prepare the constructor args for each relationship type.
    */
@@ -194,7 +206,7 @@ trait DeepFetch
   {
     return match (true) {
       $relationship instanceof HasOne,
-      $relationship instanceof OwnedBy     => $data,
+      $relationship instanceof BelongsTo     => $data,
       $relationship instanceof HasMultiple,
       $relationship instanceof Bridge      => $data instanceof DataSet ? $data : new DataSet($data),
       default                             => null,
