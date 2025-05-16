@@ -1,5 +1,4 @@
 <?php
-// src/TemplateEngine/AttributeBag.php
 
 namespace Pocketframe\TemplateEngine;
 

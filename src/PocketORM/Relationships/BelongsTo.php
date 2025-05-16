@@ -5,7 +5,7 @@ namespace Pocketframe\PocketORM\Relationships;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 
-class HasOne
+class BelongsTo
 {
   use RelationshipUtils;
 
@@ -22,15 +22,15 @@ class HasOne
 
   public function deepFetch(array $parents, array $columns = ['*']): array
   {
-    $parentIds = array_map(fn(Entity $p) => $p->id, $parents);
-    $query     = new QueryEngine($this->related);
-    $records   = $this->chunkedWhereIn($query->select($columns), $this->foreignKey, $parentIds);
+    $fks   = array_map(fn(Entity $p) => $p->{$this->foreignKey}, $parents);
+    $query = new QueryEngine($this->related);
+    $recs  = $this->chunkedWhereIn($query->select($columns), $this->getParentKey(), $fks);
 
     $grouped = [];
-    foreach ($records as $rec) {
-      $fk = $rec->{$this->foreignKey} ?? null;
-      if ($fk !== null && !isset($grouped[$fk])) {
-        $grouped[$fk] = $rec;
+    foreach ($recs as $rec) {
+      $id = $rec->{$this->getParentKey()} ?? null;
+      if ($id !== null) {
+        $grouped[$id] = $rec;
       }
     }
     return $grouped;
@@ -38,23 +38,26 @@ class HasOne
 
   public function deepFetchUsingEngine(array $parents, QueryEngine $engine): array
   {
-    $parentIds = array_map(fn(Entity $p) => $p->id, $parents);
-    $records   = $this->chunkedWhereIn($engine, $this->foreignKey, $parentIds);
-
+    $fks    = array_map(fn(Entity $p) => $p->{$this->foreignKey}, $parents);
+    $recs   = $this->chunkedWhereIn($engine, $this->getParentKey(), $fks);
     $grouped = [];
-    foreach ($records as $rec) {
-      $fk = $rec->{$this->foreignKey} ?? null;
-      if ($fk !== null && !isset($grouped[$fk])) {
-        $grouped[$fk] = $rec;
+    foreach ($recs as $rec) {
+      $id = $rec->{$this->getParentKey()} ?? null;
+      if ($id !== null) {
+        $grouped[$id] = $rec;
       }
     }
     return $grouped;
   }
 
-  public function get(): ?object
+  public function resolve(): ?object
   {
+    $fk = $this->parent->{$this->foreignKey};
+    if ($fk === null) {
+      return null;
+    }
     return (new QueryEngine($this->related))
-      ->where($this->foreignKey, '=', $this->parent->id)
+      ->where($this->getParentKey(), '=', $fk)
       ->first();
   }
 

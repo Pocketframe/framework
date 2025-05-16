@@ -45,4 +45,9 @@ trait RelationshipUtils
     }
     return $grouped;
   }
+
+  public function getQueryEngine(): QueryEngine
+  {
+    return new QueryEngine($this->related);
+  }
 }

@@ -42,6 +42,8 @@ class QueryEngine
   private ?string $entityClass;
   protected float $timeStart = 0.0;
   protected bool $distinct = false;
+  private bool $trashFilterAdded = false;
+  private bool $trashFilterApplied = false;
 
   /**
    * Constructor
@@ -2651,14 +2653,17 @@ class QueryEngine
    */
   protected function applyTrashableConditions(): void
   {
+    // If we've already applied it once, skip entirely
+    if ($this->trashFilterApplied) {
+      return;
+    }
+
     // 0) No entity? nothing to do
     if (! $this->entityClass) {
       return;
     }
 
     // 1) Only proceed if the model uses the Trashable trait
-    //    class_uses only returns traits used directly on this class,
-    //    not on parents—if you need inherited traits, use class_uses_recursive().
     if (! in_array(
       \Pocketframe\PocketORM\Concerns\Trashable::class,
       class_uses($this->entityClass),
@@ -2667,7 +2672,7 @@ class QueryEngine
       return;
     }
 
-    // 2) Make sure the getters actually exist before calling them
+    // 2) Make sure the getters actually exist
     if (
       ! method_exists($this->entityClass, 'getTrashColumn')
       || ! method_exists($this->entityClass, 'getRestoreValue')
@@ -2681,6 +2686,8 @@ class QueryEngine
 
     // 4) If someone already added a where on this column, do nothing
     if ($this->hasAnyTrashCondition($col)) {
+      // But still mark it so we don't try again later
+      $this->trashFilterApplied = true;
       return;
     }
 
@@ -2704,6 +2711,9 @@ class QueryEngine
         $this->whereNull($col);
       }
     }
+
+    // ─ mark that we've already applied it ─
+    $this->trashFilterApplied = true;
   }
 
   protected function hasAnyTrashCondition(string $column): bool
@@ -2886,40 +2896,50 @@ class QueryEngine
    */
   protected function compileWheres(): string
   {
-    if (empty($this->wheres)) return '';
+    if (empty($this->wheres)) {
+      return '';
+    }
 
+    // ── DEDUPE: remove duplicate where entries ───────────────
+    $unique = [];
+    foreach ($this->wheres as $where) {
+      // serialize the array structure as a unique key
+      $key = serialize($where);
+      if (!isset($unique[$key])) {
+        $unique[$key] = $where;
+      }
+    }
+    // overwrite with only unique where-clauses
+    $this->wheres = array_values($unique);
+
+    // ── NOW BUILD the SQL from deduped $this->wheres ─────────
     $clauses = [];
     foreach ($this->wheres as $index => $where) {
       $clause = $index === 0 ? '' : $where['boolean'] . ' ';
       $column = $this->quoteColumn($where['column'] ?? '');
 
       switch ($where['type']) {
-        // Basic comparison
         case 'basic':
           $clause .= "{$column} {$where['operator']} ?";
           break;
 
-        // IN/NOT IN
         case 'in':
           $placeholders = implode(', ', array_fill(0, count($where['values']), '?'));
           $not = $where['not'] ? 'NOT ' : '';
           $clause .= "{$column} {$not}IN ({$placeholders})";
           break;
 
-        // NULL/NOT NULL
         case 'null':
           $not = $where['not'] ? 'NOT ' : '';
           $clause .= "{$column} IS {$not}NULL";
           break;
 
-        // Column comparison
         case 'column':
           $first = $this->quoteColumn($where['first']);
           $second = $this->quoteColumn($where['second']);
           $clause .= "{$first} {$where['operator']} {$second}";
           break;
 
-        // JSON operations
         case 'json_contains':
           $clause .= "JSON_CONTAINS({$column}, ?)";
           break;
@@ -2937,7 +2957,6 @@ class QueryEngine
           $clause .= "JSON_SEARCH({$column}, 'one', ?) IS NULL";
           break;
 
-        // BETWEEN
         case 'between':
           $not = $where['not'] ? 'NOT ' : '';
           $clause .= "{$column} {$not}BETWEEN ? AND ?";
@@ -2945,11 +2964,10 @@ class QueryEngine
         case 'between_columns':
           $not = $where['not'] ? 'NOT ' : '';
           $start = $this->quoteColumn($where['start']);
-          $end = $this->quoteColumn($where['end']);
+          $end   = $this->quoteColumn($where['end']);
           $clause .= "{$column} {$not}BETWEEN {$start} AND {$end}";
           break;
 
-        // Date/time functions
         case 'date':
         case 'month':
         case 'day':
@@ -2959,27 +2977,22 @@ class QueryEngine
           $clause .= "{$function}({$column}) {$where['operator']} ?";
           break;
 
-        // Nested queries
         case 'nested':
-          $nestedSql = $where['query']->compileWheres();
-          $nestedClause = substr($nestedSql, 7); // Remove ' WHERE '
-          $not = $where['not'] ?? false ? 'NOT ' : '';
+          $nestedSql    = $where['query']->compileWheres();
+          $nestedClause = substr($nestedSql, 7); // drop leading ' WHERE '
+          $not = !empty($where['not']) ? 'NOT ' : '';
           $clause .= "{$not}({$nestedClause})";
           break;
 
         case 'exists':
-          // Build the full sub-query SQL (including its SELECT and WHEREs)
           $subSql = $where['query']->toSql();
-          // Wrap in EXISTS(...)
           $clause .= "EXISTS({$subSql})";
           break;
 
-        // Full-text search
         case 'fulltext':
           $clause .= "MATCH({$column}) AGAINST(? IN {$where['mode']} MODE)";
           break;
 
-        // Raw expressions
         case 'raw':
           $clause .= $where['sql'];
           break;
@@ -2990,6 +3003,7 @@ class QueryEngine
 
       $clauses[] = $clause;
     }
+
     return ' WHERE ' . implode(' ', $clauses);
   }
 

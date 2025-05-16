@@ -6,9 +6,6 @@ use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Entity\Entity;
 use Pocketframe\PocketORM\QueryEngine\QueryEngine;
 
-/**
- * HasMultiple: one-to-many relationship (a parent has multiple children).
- */
 class HasMultiple
 {
   use RelationshipUtils;
@@ -26,12 +23,27 @@ class HasMultiple
 
   public function deepFetch(array $parents, array $columns = ['*']): array
   {
-    $parentIds = array_map(fn($p) => $p->id, $parents);
-    $query = (new QueryEngine($this->related))->select($columns);
-    $relatedRecords = $this->chunkedWhereIn($query, $this->foreignKey, $parentIds);
-    return self::groupByKey($relatedRecords, $this->foreignKey);
+    $parentIds = array_map(fn(Entity $p) => $p->id, $parents);
+    $query     = new QueryEngine($this->related);
+    return self::groupByKey(
+      $this->chunkedWhereIn($query->select($columns), $this->foreignKey, $parentIds),
+      $this->foreignKey
+    );
   }
 
+  public function deepFetchUsingEngine(array $parents, QueryEngine $engine): array
+  {
+    $parentIds = array_map(fn(Entity $p) => $p->id, $parents);
+    $records   = $this->chunkedWhereIn($engine, $this->foreignKey, $parentIds);
+    return self::groupByKey($records, $this->foreignKey);
+  }
+
+  public function get(): DataSet
+  {
+    return (new QueryEngine($this->related))
+      ->where($this->foreignKey, '=', $this->parent->id)
+      ->get();
+  }
 
   public function getForeignKey(): string
   {
@@ -41,12 +53,5 @@ class HasMultiple
   public function getParentKey(): string
   {
     return 'id';
-  }
-
-  public function get(): DataSet
-  {
-    return (new QueryEngine($this->related))
-      ->where($this->foreignKey, '=', $this->parent->id)
-      ->get();
   }
 }
