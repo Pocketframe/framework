@@ -127,31 +127,36 @@ trait DeepFetch
   /**
    * Load a single relationship (supports dot notation).
    */
-  private function loadRelation(DataSet $records, string $relation, array $columns): void
+  private function loadRelation(DataSet $records, string $relationPath, array $columns): void
   {
-    $segments = explode('.', $relation);
+    // Split “posts.comments” into [“posts”, “comments”]
+    $segments = explode('.', $relationPath);
     $base     = array_shift($segments);
-    $items    = $records->all();
+    $nested   = $segments ? implode('.', $segments) : null;
 
+    $items = $records->all();
     if (empty($items)) {
       return;
     }
 
-    $firstConfig  = reset($items)->getRelationshipConfig($base);
-    $relationship = new $firstConfig[0](...$this->prepareRelationshipArgs(reset($items), $firstConfig));
+    // 1) Instantiate the relationship handler for the base segment
+    $config       = reset($items)->getRelationshipConfig($base);
+    $relationship = new $config[0](...$this->prepareRelationshipArgs(reset($items), $config));
 
-    // ── START HERE: build your engine on the related table
+    // 2) Start a fresh QueryEngine for this relation and select columns
     $engine = $relationship->getQueryEngine()->select($columns);
 
-    // ── apply any user‐provided filter
-    if (isset($this->includeCallbacks[$base])) {
+    // 3) Apply any user callback: full-path (posts.comments) wins over base (posts)
+    if (isset($this->includeCallbacks[$relationPath])) {
+      ($this->includeCallbacks[$relationPath])($engine);
+    } elseif (isset($this->includeCallbacks[$base])) {
       ($this->includeCallbacks[$base])($engine);
     }
 
-    // ── do the filtered deep-fetch
+    // 4) Fetch the related records using the (possibly) filtered engine
     $relatedMap = $relationship->deepFetchUsingEngine($items, $engine);
 
-    // decide which key to use for lookup
+    // 5) Map results back onto each parent
     $lookupKey = ($relationship instanceof Bridge || $relationship instanceof HasMultiple)
       ? 'id'
       : $relationship->getForeignKey();
@@ -159,6 +164,7 @@ trait DeepFetch
     foreach ($items as $parent) {
       $key  = $parent->{$lookupKey} ?? null;
       $data = $relatedMap[$key] ?? [];
+
       if ($relationship instanceof HasOne || $relationship instanceof BelongsTo) {
         $parent->setDeepFetch($base, $data ?: null);
       } else {
@@ -166,23 +172,20 @@ trait DeepFetch
       }
     }
 
-    // handle nested ("comments.user") includes if any
-    if ($segments) {
-      $nextRelation = implode('.', $segments);
-      $allChild      = [];
-
+    // 6) Recurse for nested segments (e.g. “comments”)
+    if ($nested) {
+      $childRecords = [];
       foreach ($relatedMap as $group) {
         if ($group instanceof DataSet) {
-          $allChild = array_merge($allChild, $group->all());
+          $childRecords = array_merge($childRecords, $group->all());
         } elseif (is_array($group)) {
-          $allChild = array_merge($allChild, $group);
+          $childRecords = array_merge($childRecords, $group);
         } elseif ($group !== null) {
-          $allChild[] = $group;
+          $childRecords[] = $group;
         }
       }
-
-      if ($allChild) {
-        $this->loadRelation(new DataSet($allChild), $nextRelation, $columns);
+      if (!empty($childRecords)) {
+        $this->loadRelation(new DataSet($childRecords), $nested, $columns);
       }
     }
   }
