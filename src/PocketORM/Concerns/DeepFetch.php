@@ -72,42 +72,58 @@ trait DeepFetch
   }
 
   /**
-   * Filter the parent by a relation **and** eager-load that relation
-   * with the same filters (plus optional column-selection).
-   *
-   * @param  string        $relation        The relation path (supports dot notation)
-   * @param  Closure       $filter          A closure($query) that adds your where() calls
-   * @param  string[]|null $columns         Optional: list of columns to select on the relation
-   * @return static
+   * @param  string        $relationPath  dot-notation path, e.g. "student_registrations.student_class.streams"
+   * @param  Closure       $filter        filters to apply to the *root* relation inside the EXISTS and on eager-load
+   * @param  array         $columnsMap    either:
+   *     • a plain list of columns (['id','status',…]) to apply only on the deepest table, or
+   *     • an associative map of path → columnLists, e.g.
+   *          [
+   *            'student_registrations'                       => ['id','status','term','year','studentId'],
+   *            'student_registrations.student_class'         => ['id','class_name','prefix'],
+   *            'student_registrations.student_class.streams' => ['id','stream'],
+   *          ]
    */
-  public function includeWhereHas(string $relationPath, Closure $filter, array $columns = ['*']): static
-  {
-    // 1) Separate the first segment from the rest
-    if (str_contains($relationPath, '.')) {
-      [$root, $rest] = explode('.', $relationPath, 2);
-    } else {
-      $root = $relationPath;
-      $rest = null;
-    }
-
-    // 2) Apply the filter only to the ROOT relation
+  public function includeWhereHas(
+    string $relationPath,
+    Closure $filter,
+    array $columnsMap = ['*']
+  ): static {
+    // 1) Filter parents by root
+    $root = explode('.', $relationPath, 2)[0];
     $this->whereHas($root, $filter);
 
-    // 3) Eager‐load the full path:
-    //    - For the root, we reapply the same filter (and select cols).
-    //    - For the nested rest (if any), we eager-load it without reapplying root filters.
-    $this->include([
-      // root segment
-      $root => function ($q) use ($filter, $columns) {
-        $filter($q);
-        if ($columns !== ['*']) {
-          $q->select($columns);
-        }
-      },
+    // 2) Build the list of all paths we'll eager-load
+    $segments = explode('.', $relationPath);
+    $paths = [];
+    $acc = '';
+    foreach ($segments as $seg) {
+      $acc = $acc ? "{$acc}.{$seg}" : $seg;
+      $paths[] = $acc;
+    }
 
-      // nested (pass through the remainder of the path)
-      $relationPath => null,
-    ]);
+    // 3) Turn that into the single include() call, extracting columns per path
+    $includeSpecs = [];
+    foreach ($paths as $path) {
+      // determine which columns to select
+      if (isset($columnsMap[$path])) {
+        $cols = $columnsMap[$path];
+      } elseif ($path === end($paths) && array_values($columnsMap) === $columnsMap) {
+        // user passed a plain list; apply it only at deepest level
+        $cols = $columnsMap;
+      } else {
+        $cols = ['*'];
+      }
+
+      // register the callback only on the root segment
+      if ($path === $root) {
+        $includeSpecs["{$path}:" . implode(',', $cols)] = $filter;
+      } else {
+        $includeSpecs["{$path}:" . implode(',', $cols)] = null;
+      }
+    }
+
+    // 4) Finally register exactly one include() with all of them
+    $this->include($includeSpecs);
 
     return $this;
   }
@@ -133,29 +149,48 @@ trait DeepFetch
     $base     = array_shift($segments);
     $nested   = $segments ? implode('.', $segments) : null;
     $items    = $records->all();
-
     if (empty($items)) {
       return;
     }
 
-    // Instantiate the relationship handler
+    // 1) get config & instantiate handler
     $config       = reset($items)->getRelationshipConfig($base);
-    $relationship = new $config[0](...$this->prepareRelationshipArgs(reset($items), $config));
+    [$type, $relatedClass /*, …rest*/] = $config;
+    $relationship = new $type(...$this->prepareRelationshipArgs(reset($items), $config));
 
-    // 1) Start a fresh engine and select desired columns
-    $engine = $relationship->getQueryEngine()->select($columns);
+    // 2) figure out the actual table name for this relation
+    $table = $relatedClass::getTable();
 
-    // 2) Apply callback: full-path callback takes precedence over base
+    // 3) rewrite unqualified columns but leave '*' and 'table.*' alone
+    $qualified = array_map(function (string $col) use ($table) {
+      if ($col === '*') {
+        return '*';
+      }
+      if (preg_match('/^[^\.]+\.\*$/', $col)) {
+        return $col;
+      }
+      if (strpos($col, '.') !== false) {
+        return $col;
+      }
+      return "{$table}.{$col}";
+    }, $columns);
+
+    // 4) grab & configure the engine
+    $engine = $relationship
+      ->getQueryEngine()    // fresh QueryEngine for $relatedClass
+      ->select($qualified); // only these columns
+
+    // 5) apply your include‐callback if present
     if (isset($this->includeCallbacks[$relationPath])) {
       ($this->includeCallbacks[$relationPath])($engine);
     } elseif (isset($this->includeCallbacks[$base])) {
       ($this->includeCallbacks[$base])($engine);
     }
 
-    // 3) Fetch related records using the filtered engine
+    // 6) do the deepFetch with your fully‐configured engine
     $relatedMap = $relationship->deepFetchUsingEngine($items, $engine);
 
-    // 4) Determine lookup key and map results back to parents
+    // 7) map back onto parents
     $lookupKey = ($relationship instanceof Bridge || $relationship instanceof HasMultiple)
       ? 'id'
       : $relationship->getForeignKey();
@@ -171,7 +206,7 @@ trait DeepFetch
       }
     }
 
-    // 5) Recurse for nested relations
+    // 8) recurse for nested segments
     if ($nested) {
       $childRecords = [];
       foreach ($relatedMap as $group) {
@@ -183,7 +218,6 @@ trait DeepFetch
           $childRecords[] = $group;
         }
       }
-
       if (!empty($childRecords)) {
         $this->loadRelation(new DataSet($childRecords), $nested, $columns);
       }
