@@ -71,59 +71,49 @@ trait DeepFetch
     return $this;
   }
 
-  /**
-   * @param  string        $relationPath  dot-notation path, e.g. "student_registrations.student_class.streams"
-   * @param  Closure       $filter        filters to apply to the *root* relation inside the EXISTS and on eager-load
-   * @param  array         $columnsMap    either:
-   *     • a plain list of columns (['id','status',…]) to apply only on the deepest table, or
-   *     • an associative map of path → columnLists, e.g.
-   *          [
-   *            'student_registrations'                       => ['id','status','term','year','studentId'],
-   *            'student_registrations.student_class'         => ['id','class_name','prefix'],
-   *            'student_registrations.student_class.streams' => ['id','stream'],
-   *          ]
-   */
   public function includeWhereHas(
     string $relationPath,
     Closure $filter,
     array $columnsMap = ['*']
   ): static {
-    // 1) Filter parents by root
+    // 1) Filter parents by the root relation
     $root = explode('.', $relationPath, 2)[0];
     $this->whereHas($root, $filter);
 
-    // 2) Build the list of all paths we'll eager-load
-    $segments = explode('.', $relationPath);
-    $paths = [];
-    $acc = '';
-    foreach ($segments as $seg) {
-      $acc = $acc ? "{$acc}.{$seg}" : $seg;
-      $paths[] = $acc;
-    }
+    // 2) Build every sub-path: [ 'student_registrations',
+    //                             'student_registrations.student_class',
+    //                             'student_registrations.student_class.streams' ]
+    $parts = explode('.', $relationPath);
+    $acc   = [];
+    $specs = [];
 
-    // 3) Turn that into the single include() call, extracting columns per path
-    $includeSpecs = [];
-    foreach ($paths as $path) {
-      // determine which columns to select
-      if (isset($columnsMap[$path])) {
-        $cols = $columnsMap[$path];
-      } elseif ($path === end($paths) && array_values($columnsMap) === $columnsMap) {
-        // user passed a plain list; apply it only at deepest level
+    foreach ($parts as $i => $part) {
+      $acc[]   = $part;
+      $subPath = implode('.', $acc);
+
+      // decide columns for THIS subPath
+      if (isset($columnsMap[$subPath])) {
+        $cols = $columnsMap[$subPath];
+      } elseif ($subPath === $relationPath && array_values($columnsMap) === $columnsMap) {
+        // flat list only applies at deepest level
         $cols = $columnsMap;
       } else {
+        // *only* include automatically if it’s root or deepest:
+        if ($subPath !== $root && $subPath !== $relationPath) {
+          continue;
+        }
         $cols = ['*'];
       }
 
-      // register the callback only on the root segment
-      if ($path === $root) {
-        $includeSpecs["{$path}:" . implode(',', $cols)] = $filter;
-      } else {
-        $includeSpecs["{$path}:" . implode(',', $cols)] = null;
-      }
+      // only at the root do we re-apply your filter
+      $specs["{$subPath}:" . implode(',', $cols)]
+        = $subPath === $root
+        ? $filter
+        : null;
     }
 
-    // 4) Finally register exactly one include() with all of them
-    $this->include($includeSpecs);
+    // 3) Fire a single include() call
+    $this->include($specs);
 
     return $this;
   }
