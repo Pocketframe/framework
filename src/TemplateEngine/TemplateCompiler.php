@@ -75,6 +75,12 @@ class TemplateCompiler
   protected array $slotStack = [];
 
   /**
+   * Tracks nested push stacks.
+   * @var array
+   */
+  protected array $pushStacks = [];
+
+  /**
    * TemplateCompiler constructor.
    *
    * @param string $templateName The name of the template to compile.
@@ -268,6 +274,9 @@ class TemplateCompiler
       'continue'     => $this->compileFlowControl('continue', $args),
       'break'        => $this->compileFlowControl('break', $args),
       'paginate'     => $this->compilePaginate($args),
+      'push'    => "<?php ob_start(); array_push(\$__template->stacks, $args); ?>",
+      'endpush' => "<?php \$__template->pushStacks[array_pop(\$__template->stacks)][] = ob_get_clean(); ?>",
+      'stack'   => "<?php echo implode('', \$__template->pushStacks[$args] ?? []); ?>",
       default        => "@$directive" . ($args !== '' ? "($args)" : '')
     };
   }
@@ -318,28 +327,27 @@ class TemplateCompiler
    */
   protected function compileForEach(string $expression): string
   {
-    // Expect expression like "$posts as $post"
-    if (preg_match('/^\s*(.+?)\s+as\s+(\$[\w]+)/', $expression, $matches)) {
-      $collection = trim($matches[1]); // e.g. $posts
-      $itemVar = trim($matches[2]);     // e.g. $post
-      // Build PHP code that:
-      // 1. Stores the collection in a temporary variable.
-      // 2. Calculates its count.
-      // 3. Iterates over the collection.
-      // 4. Creates a $loop object with useful properties.
-      $compiled = "<?php \$__temp_collection = {$collection}; ";
-      $compiled .= "\$__loop_count = is_array(\$__temp_collection) ? count(\$__temp_collection) : 0; ";
-      $compiled .= "foreach(\$__temp_collection as \$key => {$itemVar}): ";
+    if (preg_match('/^\s*(.+?)\s+as\s+(\$[\w]+)/', $expression, $m)) {
+      $collection = trim($m[1]);   // e.g. `$posts`
+      $itemVar    = trim($m[2]);   // e.g. `$post`
+
+      // **1)** always convert to an array (using toArray),
+      // **2)** count it directly
+      $compiled  = "<?php \$__temp_collection = \\Pocketframe\\TemplateEngine\\TemplateCompiler::toArray({$collection}); ";
+      $compiled .= "\$__loop_count        = count(\$__temp_collection); ";
+      $compiled .= "foreach (\$__temp_collection as \$key => {$itemVar}): ";
       $compiled .= "\$loop = new stdClass(); ";
-      $compiled .= "\$loop->index = \$key; ";
+      $compiled .= "\$loop->index     = \$key; ";
       $compiled .= "\$loop->iteration = \$key + 1; ";
-      $compiled .= "\$loop->count = \$__loop_count; ";
-      $compiled .= "\$loop->first = \$key === 0; ";
-      $compiled .= "\$loop->last = (\$key + 1) === \$__loop_count; ?>";
+      $compiled .= "\$loop->count     = \$__loop_count; ";
+      $compiled .= "\$loop->first     = (\$key === 0); ";
+      $compiled .= "\$loop->last      = ((\$key + 1) === \$__loop_count); ?>";
+
       return $compiled;
     }
-    // Fallback in case the expression does not match expected pattern.
-    return "<?php foreach({$expression}): ?>";
+
+    // fallback…
+    return "<?php foreach ({$expression}): ?>";
   }
 
 
@@ -390,7 +398,7 @@ class TemplateCompiler
     $this->eachVarStack[] = $varName;
 
     return "<?php \${$varName} = " . var_export($empty, true) . "; "
-      . "\$__collection = \\Pocketframe\\TemplateEngine\\TemplateCompiler::toArray(\$__template->data[" . var_export($collection, true) . "]); "
+      . "\$__collection = \\Pocketframe\\TemplateEngine\\TemplateCompiler::toArray(\$__template->data[" . var_export($collection, true) . "] ?? []); "
       . "\$__loop_count = count(\$__collection); "
       . "if(\$__loop_count > 0): foreach(\$__collection as \$key => \$$as): ob_start(); "
       . "\$loop = new stdClass(); "
@@ -531,15 +539,29 @@ class TemplateCompiler
       $parentTemplate = str_replace('.', '/', $match[1]);
       $content = str_replace($match[0], '', $content);
 
-      preg_match_all('/@block\(\s*[\'"](.+?)[\'"]\s*\)(.*?)@endblock/s', $content, $childBlockMatches);
-      $childBlocks = array_combine($childBlockMatches[1], $childBlockMatches[2]);
+      // 1. Render child template (including all @push, etc.) into a buffer
+      ob_start();
+      $__template = $this; // Make $__template available to the eval'd code
+      eval('?>' . $this->compileStatements($content));
+      ob_end_clean(); // We don't need the output, just the side effects (pushStacks, blocks, etc.)
 
+      // 2. Now, load and process the parent template
       $parentPath = base_path("resources/views/{$parentTemplate}.view.php");
       if (!file_exists($parentPath)) {
         throw new Exception("Parent template not found: {$parentPath}");
       }
       $parentContent = file_get_contents($parentPath);
 
+      // 3. Insert child blocks into parent
+      preg_match_all('/@block\(\s*[\'"](.+?)[\'"]\s*\)(.*?)@endblock/s', $content, $childBlockMatches);
+      $childBlocks = [];
+      if (
+        !empty($childBlockMatches[1]) &&
+        !empty($childBlockMatches[2]) &&
+        count($childBlockMatches[1]) === count($childBlockMatches[2])
+      ) {
+        $childBlocks = array_combine($childBlockMatches[1], $childBlockMatches[2]);
+      }
       foreach ($childBlocks as $name => $block) {
         $parentContent = preg_replace(
           '/@insert\(\s*[\'"]' . preg_quote($name, '/') . '[\'"]\s*\)/',
@@ -548,9 +570,9 @@ class TemplateCompiler
         );
       }
 
+      // 4. Return the parent content (with blocks inserted, stacks now populated)
       return $parentContent;
     }
-
     return $content;
   }
 
