@@ -13,6 +13,7 @@ use Pocketframe\PocketORM\Essentials\DataSet;
 use Pocketframe\PocketORM\Pagination\CursorPaginator;
 use Pocketframe\PocketORM\Pagination\Paginator;
 use Pocketframe\PocketORM\Concerns\Trashable;
+use Pocketframe\PocketORM\Relationships\RelationshipNotDefinedException;
 
 class QueryEngine
 {
@@ -1877,27 +1878,42 @@ class QueryEngine
    */
   public function whereHas(string $relation, Closure $callback, string $boolean = 'AND'): self
   {
-    // If it's nested (e.g. "student_registration.student_classes")
+    // Handle nested relations like "parent.child.grandchild"
     if (str_contains($relation, '.')) {
       [$parent, $childPath] = explode('.', $relation, 2);
-
-      // Recurse: only keep parents having a $parent with a matching $childPath
       return $this->whereHas($parent, function (self $q) use ($childPath, $callback) {
         $q->whereHas($childPath, $callback);
       }, $boolean);
     }
 
     // ---- Base case: single-level relation ----
+    $model = new $this->entityClass();
 
-    // 1) Instantiate a dummy model to get instance relationship config
-    $model       = new $this->entityClass();
-    $cfg         = $model->getRelationshipConfig($relation);
-    [, $relatedClass, $foreignKey] = $cfg;
+    if (method_exists($model, $relation)) {
+      // Method-based: call it to get your Relationship object
+      $relObj = $model->$relation(); // HasMultiple, BelongsTo, etc.
 
-    // 2) Parent primary key (static helper you added to Entity)
-    $localKey    = $this->entityClass::getPrimaryKey();
+      // Use Reflection to read the private $related property
+      $ref      = new \ReflectionClass($relObj);
+      $prop     = $ref->getProperty('related');
+      $prop->setAccessible(true);
+      $relatedClass = $prop->getValue($relObj);
 
-    // 3) Build EXISTS sub-query
+      // And the FK via its public getter
+      $foreignKey = $relObj->getForeignKey();
+    } else {
+      // Fallback to static-array config
+      $cfg = $model->getRelationshipConfig($relation);
+      if (! isset($cfg)) {
+        throw new RelationshipNotDefinedException($relation, static::class);
+      }
+      [, $relatedClass, $foreignKey] = $cfg;
+    }
+
+    // Parent primary key
+    $localKey = $this->entityClass::getPrimaryKey();
+
+    // Build the EXISTS() sub-query
     return $this->whereExists(function (self $q) use ($relatedClass, $foreignKey, $localKey, $callback) {
       $q->from($relatedClass::getTable())
         ->whereColumn(
@@ -1905,7 +1921,7 @@ class QueryEngine
           "{$this->table}.{$localKey}"
         );
 
-      // Apply the user’s filter
+      // Apply the user’s filter closure
       $callback($q);
     }, $boolean);
   }
