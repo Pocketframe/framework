@@ -97,6 +97,21 @@ class Request
   }
 
   /**
+   * Get a specific request parameter
+   *
+   * Returns the value of a specific request parameter from GET or POST data.
+   *
+   * @param string $key The key of the parameter to retrieve
+   * @param mixed $default The default value to return if the parameter is not found
+   * @return mixed The value of the parameter or the default value
+   */
+  public function input(string $key, mixed $default = null): mixed
+  {
+    $value = $_POST[$key] ?? $default;
+    return $this->sanitize($value);
+  }
+
+  /**
    * Get JSON request data
    *
    * Retrieves and parses JSON data from the request body when the Content-Type is application/json.
