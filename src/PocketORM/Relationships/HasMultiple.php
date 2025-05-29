@@ -45,9 +45,11 @@ class HasMultiple
 
   public function get(): DataSet
   {
-    return (new QueryEngine($this->related))
+    $model = (new QueryEngine($this->related))
       ->where($this->foreignKey, '=', $this->parent->{$this->parentKey})
       ->get();
+
+    return $model ?? new $this->related([]);
   }
 
   public function getForeignKey(): string

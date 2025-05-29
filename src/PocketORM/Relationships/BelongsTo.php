@@ -53,12 +53,14 @@ class BelongsTo
   public function resolve(): ?object
   {
     $fk = $this->parent->{$this->foreignKey};
+
     if ($fk === null) {
-      return null;
+      return new $this->related([]);
     }
-    return (new QueryEngine($this->related))
+    $model = (new QueryEngine($this->related))
       ->where($this->getParentKey(), '=', $fk)
       ->first();
+    return $model ?? new $this->related([]);
   }
 
   public function getForeignKey(): string

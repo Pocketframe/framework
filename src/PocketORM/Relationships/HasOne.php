@@ -58,9 +58,11 @@ class HasOne
 
   public function get(): ?object
   {
-    return (new QueryEngine($this->related))
+    $model = (new QueryEngine($this->related))
       ->where($this->foreignKey, '=', $this->parent->{$this->parentKey})
       ->first();
+
+    return $model ?? new $this->related([]);
   }
 
   public function getForeignKey(): string
