@@ -161,31 +161,46 @@ abstract class Entity
       return $this->deepFetch[$name];
     }
 
-    // 2) Actual attribute?
+    // 2) Direct attribute?
     if (array_key_exists($name, $this->attributes)) {
       return $this->attributes[$name];
     }
 
-    // 3) Relationship?
-    if (isset($this->relationship[$name])) {
-      $handler = $this->loadRelationship($name);
+    // 3a) Method-based relationship?
+    if (method_exists($this, $name)) {
+      $handler = $this->$name(); // e.g. $this->student_class(), $this->student_registrations()
 
-      // If it’s a BELONGS-TO or HAS-ONE, immediately resolve to a single model:
       if (
         $handler instanceof \Pocketframe\PocketORM\Relationships\BelongsTo
         || $handler instanceof \Pocketframe\PocketORM\Relationships\HasOne
       ) {
         $resolved = $handler->resolve();
       } else {
-        // For HasMultiple or Bridge, get back a DataSet
+        // HasMultiple or Bridge
         $resolved = $handler->get();
       }
 
-      // Cache it & return it
+      // Cache & return
       return $this->deepFetch[$name] = $resolved;
     }
 
-    // 4) Date or error
+    // 3b) Array-based relationship (existing behavior)
+    if (isset($this->relationship[$name])) {
+      $handler = $this->loadRelationship($name);
+
+      if (
+        $handler instanceof \Pocketframe\PocketORM\Relationships\BelongsTo
+        || $handler instanceof \Pocketframe\PocketORM\Relationships\HasOne
+      ) {
+        $resolved = $handler->resolve();
+      } else {
+        $resolved = $handler->get();
+      }
+
+      return $this->deepFetch[$name] = $resolved;
+    }
+
+    // 4) Date casting?
     if (in_array($name, $this->dates, true)) {
       return $this->getDateValue($name);
     }
@@ -906,5 +921,14 @@ abstract class Entity
       }
     }
     return $array;
+  }
+
+  /**
+   * When you echo an Entity (e.g. {{ $entity }}),
+   * return a JSON snapshot of attributes + loaded relations.
+   */
+  public function __toString(): string
+  {
+    return json_encode($this->toArray(), JSON_UNESCAPED_UNICODE);
   }
 }
