@@ -134,35 +134,28 @@ class QueryEngine
   |***********************************************
   | Fetch the records of the query result.
   |----------------------------------------------
-
   */
 
   /**
-   * Get all records of the query result
+   * Get all records of the query result, including eager‐loads.
    *
-   * Get all records of the query result.
-   *
-   * @return DataSet The result set
-   *
-   * @example ->get()
+   * @return DataSet
    */
   public function get(): DataSet
   {
+    // 1) Apply global/tenant/trash scopes
     $this->applyGlobalScopes();
     $this->applyTenantScope();
     $this->applyTrashableConditions();
 
-    $sql = $this->compileSelect();
+    // 2) Compile and execute the raw SELECT
+    $sql     = $this->compileSelect();
     $records = $this->executeQuery($sql);
 
-    // Perform eager loading using DeepFetch’s methods.
-    foreach ($this->includes as $relation => $columns) {
-      $this->loadRelation($records, $relation, $columns);
-    }
-
-
-    return $records;
+    // 3) Delegate to DeepFetch for all includes
+    return $this->applyEagerLoads($records);
   }
+
 
   /**
    * Get the first record
@@ -2018,7 +2011,7 @@ class QueryEngine
     $query->limit       = null;
     $query->offset      = null;
 
-    $query->includes    = [];
+    // $query->includes    = [];
 
 
     $col = $query->wrapColumn($column);
