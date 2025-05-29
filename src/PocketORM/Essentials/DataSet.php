@@ -46,6 +46,14 @@ class DataSet implements IteratorAggregate, Countable, ArrayAccess
   }
 
   /**
+   * Echoing a DataSet will dump its array form as JSON.
+   */
+  public function __toString(): string
+  {
+    return json_encode($this->toArray(), JSON_UNESCAPED_UNICODE);
+  }
+
+  /**
    * Static factory method for building a new DataSet instance.
    *
    * @param array $records
@@ -71,10 +79,15 @@ class DataSet implements IteratorAggregate, Countable, ArrayAccess
    *
    * @return ?object
    */
-  public function first(): ?object
+  // public function first(): ?object
+  // {
+  //   $record = $this->records[0] ?? null;
+  //   return $record ? (object)$record : null;
+  // }
+
+  public function first(): ?\Pocketframe\PocketORM\Entity\Entity
   {
-    $record = $this->records[0] ?? null;
-    return $record ? (object)$record : null;
+    return $this->records[0] ?? null;
   }
 
   /**
