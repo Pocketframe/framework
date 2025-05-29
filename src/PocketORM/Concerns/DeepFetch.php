@@ -15,251 +15,187 @@ use Pocketframe\PocketORM\Relationships\BelongsTo;
  * Trait DeepFetch
  *
  * Advanced eager-loading and relationship filtering for PocketORM.
- *
- * Usage examples:
- *   $query->include(['posts', 'tags:id,name']);
- *   $query->include(['posts' => function($q){ $q->where(...); }]);
- *   $query->include(['posts.comments' => function($q){ ... }]);
- *   $query->includeWhereHas('posts', fn($q) => $q->where('status', 'published'), 'id,title');
  */
 trait DeepFetch
 {
   /**
-   * Stores includes with their optional column lists.
-   * @var array<string, string[]>
+   * Tree of include definitions: node => ['columns'=>[], 'callback'=>Closure|null, 'children'=>[]]
+   * @var array<string, array>
    */
-  private array $includes = [];
+  private array $includeTree = [];
 
   /**
-   * Stores user callbacks for specific relations.
-   * @var array<string, Closure>
-   */
-  private array $includeCallbacks = [];
-
-  /**
-   * Parse include definition into name and columns.
-   *
-   * @param string $def
-   * @return array{name: string, cols: string[]}
-   */
-  private function parseIncludeDef(string $def): array
-  {
-    if (str_contains($def, ':')) {
-      [$name, $colsStr] = explode(':', $def, 2);
-      $cols = array_map('trim', explode(',', $colsStr));
-    } else {
-      $name = $def;
-      $cols = ['*'];
-    }
-    return [$name, $cols];
-  }
-
-  /**
-   * Define relationships to include (with optional columns and callbacks).
-   *
-   * Usage:
-   *   ->include(['posts', 'tags:id,name'])
-   *   ->include(['posts' => function($q){ $q->where(...); }])
-   *   ->include(['posts.comments' => function($q){ ... }])
-   *
-   * @param array<string, string|Closure> $relations
+   * Register relations to include, with optional columns and callbacks.
+   * Supports nested dot-notation or shorthand array syntax.
+   * @param array<string, string|Closure|array> $relations
    * @return static
-   * @throws InvalidArgumentException If a relation does not exist
    */
   public function include(array $relations): static
   {
-    // Attempt to use a sample entity for relation existence checks
-    $sampleEntity = method_exists($this, 'getModel') ? $this->getModel() : null;
-
+    $baseEntity = method_exists($this, 'getEntity') ? $this->getEntity() : null;
     foreach ($relations as $key => $value) {
-      [$name, $cols] = $this->parseIncludeDef(is_int($key) ? $value : $key);
-
-      // Error handling: check if the relation exists on the model (if possible)
-      if ($sampleEntity instanceof Entity) {
-        if (!method_exists($sampleEntity, $name) && !$sampleEntity->getRelationshipConfig($name)) {
-          throw new InvalidArgumentException("Relation '$name' does not exist on " . get_class($sampleEntity));
+      if (is_array($value) && is_string($key)) {
+        // shorthand: ['posts' => ['comments','tags']] => include ['posts.comments','posts.tags']
+        foreach ($value as $sub) {
+          $this->include(["{$key}.{$sub}"]);
         }
+      } else {
+        $path = is_int($key) ? $value : $key;
+        [$name, $cols] = $this->parseIncludeDef($path);
+        $callback = $value instanceof Closure ? $value : null;
+        $this->registerNode(explode('.', $name), $cols, $callback, $baseEntity);
       }
-
-      if ($value instanceof Closure) {
-        $this->includeCallbacks[$name] = $value;
-      }
-      $this->includes[$name] = $cols;
     }
     return $this;
   }
 
   /**
-   * Filter the parent by a relation **and** eager-load that relation
-   * with the same filters (plus optional column-selection).
-   *
-   * Usage:
-   *   ->includeWhereHas('posts', fn($q) => $q->where('status', 'published'), 'id,title')
-   *
-   * @param string        $relationPath The relation path (supports dot notation)
-   * @param Closure       $filter       A closure($query) that adds your where() calls
-   * @param string[]|string $columns    Optional: columns to select on the relation
+   * Apply a whereHas filter and eager-load the relation.
+   * @param string $relationPath
+   * @param Closure $filter
+   * @param string|array $columns
    * @return static
    */
   public function includeWhereHas(string $relationPath, Closure $filter, string|array $columns = ['*']): static
   {
-    // Allow columns as a string, e.g. 'title,slug'
     if (is_string($columns)) {
-      [, $columns] = $this->parseIncludeDef($relationPath . ':' . $columns);
+      [, $columns] = $this->parseIncludeDef("{$relationPath}:{$columns}");
     }
-
-    // 1) Separate the first segment from the rest
-    if (str_contains($relationPath, '.')) {
-      [$root, $rest] = explode('.', $relationPath, 2);
-    } else {
-      $root = $relationPath;
-      $rest = null;
-    }
-
-    // 2) Apply the filter only to the ROOT relation
+    $root = explode('.', $relationPath, 2)[0];
     $this->whereHas($root, $filter);
-
-    // 3) Eager‐load the full path:
-    //    - For the root, we reapply the same filter (and select cols).
-    //    - For the nested rest (if any), we eager-load it without reapplying root filters.
-    $this->include([
-      // root segment
-      $root => function ($q) use ($filter, $columns) {
+    return $this->include([
+      $relationPath => function ($q) use ($filter, $columns) {
         $filter($q);
         if ($columns !== ['*']) {
           $q->select($columns);
         }
-      },
-      // nested (pass through the remainder of the path)
-      $relationPath => null,
+      }
     ]);
-
-    return $this;
   }
 
   /**
-   * Fetch base records and eager-load each include with its columns.
-   *
+   * After fetching raw records, apply this to run eager loading.
+   * @param DataSet $records
    * @return DataSet
    */
-  public function get(): DataSet
+  public function applyEagerLoads(DataSet $records): DataSet
   {
-    $records = parent::get();
-    foreach ($this->includes as $rel => $cols) {
-      $this->loadRelation($records, $rel, $cols);
+    // If no records, nothing to load
+    if (count($records) === 0) {
+      return $records;
+    }
+
+    foreach ($this->includeTree as $relation => $node) {
+      $this->loadNode($records, $relation, $node);
     }
     return $records;
   }
 
   /**
-   * Load a single relationship (supports dot notation).
-   *
-   * @param DataSet $records
-   * @param string $relationPath
-   * @param string[] $columns
-   * @return void
+   * Register a node recursively into includeTree.
    */
-  private function loadRelation(DataSet $records, string $relationPath, array $columns): void
+  private function registerNode(array $segments, array $columns, ?Closure $callback, $base): void
   {
-    $segments = explode('.', $relationPath);
-    $base     = array_shift($segments);
-    $nested   = $segments ? implode('.', $segments) : null;
-    $items    = $records->all();
+    $tree = &$this->includeTree;
+    $entity = $base;
+    while ($segment = array_shift($segments)) {
+      if ($entity instanceof Entity && !method_exists($entity, $segment) && !$entity->getRelationshipConfig($segment)) {
+        throw new InvalidArgumentException("Relation '{$segment}' not found on " . get_class($entity));
+      }
+      $tree[$segment]['columns'] = $columns;
+      if ($callback) {
+        $tree[$segment]['callback'] = $callback;
+        $callback = null; // only apply at top-level of this path
+      }
+      if (!empty($segments)) {
+        $tree[$segment]['children'] ??= [];
+        // advance entity for next level
+        $entity = $entity?->{$segment}() ?? null;
+        $tree = &$tree[$segment]['children'];
+      }
+    }
+  }
 
+  /**
+   * Load a single node and recurse children.
+   */
+  private function loadNode(DataSet $parents, string $relation, array $node): void
+  {
+    $items = $parents->all();
     if (empty($items)) {
       return;
     }
-
-    // Instantiate the relationship handler
-    $entity = reset($items);
-
-    if (method_exists($entity, $base)) {
-      // Use method-based relationship
-      $relationship = $entity->$base();
+    $sample = reset($items);
+    if (method_exists($sample, $relation)) {
+      $rel = $sample->{$relation}();
     } else {
-      // Fallback to array-based
-      $config = $entity->getRelationshipConfig($base);
-      $relationship = new $config[0](...$this->prepareRelationshipArgs($entity, $config));
+      $cfg = $sample->getRelationshipConfig($relation);
+      $rel = new $cfg[0](...$this->prepareRelationshipArgs($sample, $cfg));
     }
-
-    // 1) Start a fresh engine and select desired columns
-    $engine = $relationship->getQueryEngine()->select($columns);
-
-    // 2) Apply callback: full-path callback takes precedence over base
-    if (isset($this->includeCallbacks[$relationPath])) {
-      ($this->includeCallbacks[$relationPath])($engine);
-    } elseif (isset($this->includeCallbacks[$base])) {
-      ($this->includeCallbacks[$base])($engine);
+    $engine = $rel->getQueryEngine()->select($node['columns']);
+    if (!empty($node['callback'])) {
+      $node['callback']($engine);
     }
+    $map = $rel->deepFetchUsingEngine($items, $engine);
+    $this->mapResults($items, $relation, $rel, $map);
 
-    // 3) Fetch related records using the filtered engine
-    $relatedMap = $relationship->deepFetchUsingEngine($items, $engine);
-
-    // 4) Determine lookup key and map results back to parents
-    $lookupKey = ($relationship instanceof Bridge || $relationship instanceof HasMultiple)
-      ? 'id'
-      : $relationship->getForeignKey();
-
-    foreach ($items as $parent) {
-      $key  = $parent->{$lookupKey} ?? null;
-      $data = $relatedMap[$key] ?? [];
-
-      if ($relationship instanceof HasOne || $relationship instanceof BelongsTo) {
-        $parent->setDeepFetch($base, $data ?: null);
-      } else {
-        $parent->setDeepFetch($base, new DataSet($data));
-      }
-    }
-
-    // 5) Recurse for nested relations
-    if ($nested) {
-      $childRecords = [];
-      foreach ($relatedMap as $group) {
+    if (!empty($node['children'])) {
+      $childList = [];
+      foreach ($map as $group) {
         if ($group instanceof DataSet) {
-          $childRecords = array_merge($childRecords, $group->all());
+          $childList = array_merge($childList, $group->all());
         } elseif (is_array($group)) {
-          $childRecords = array_merge($childRecords, $group);
+          $childList = array_merge($childList, $group);
         } elseif ($group !== null) {
-          $childRecords[] = $group;
+          $childList[] = $group;
         }
       }
-
-      if (!empty($childRecords)) {
-        $this->loadRelation(new DataSet($childRecords), $nested, $columns);
+      if ($childList) {
+        $childDS = new DataSet($childList);
+        foreach ($node['children'] as $child => $childNode) {
+          $this->loadNode($childDS, $child, $childNode);
+        }
       }
     }
   }
 
   /**
-   * Prepare the constructor args for each relationship type.
-   *
-   * @param Entity $parent
-   * @param array $config
-   * @return array
+   * Map fetched related records back onto parent entities.
    */
-  private function prepareRelationshipArgs(Entity $parent, array $config): array
+  private function mapResults(array $parents, string $relation, $rel, array $map): void
   {
-    if ($config[0] === Bridge::class) {
-      return [$parent, $config[1], $config[2], $config[3], $config[4]];
+    $key = ($rel instanceof Bridge || $rel instanceof HasMultiple) ? 'id' : $rel->getForeignKey();
+    foreach ($parents as $p) {
+      $idx = $p->{$rel instanceof Bridge ? $rel->getParentKey() : $key} ?? null;
+      $data = $map[$idx] ?? [];
+      if ($rel instanceof HasOne || $rel instanceof BelongsTo) {
+        $p->setDeepFetch($relation, $data ?: null);
+      } else {
+        $p->setDeepFetch($relation, new DataSet($data));
+      }
     }
-    return [$parent, $config[1], $config[2] ?? null];
   }
 
   /**
-   * Format loaded data based on relationship.
-   *
-   * @param mixed $relationship
-   * @param mixed $data
-   * @return mixed
+   * Parse "relation:col1,col2" syntax.
    */
-  private function formatLoadedData($relationship, $data)
+  private function parseIncludeDef(string $def): array
   {
-    return match (true) {
-      $relationship instanceof HasOne,
-      $relationship instanceof BelongsTo     => $data,
-      $relationship instanceof HasMultiple,
-      $relationship instanceof Bridge        => $data instanceof DataSet ? $data : new DataSet($data),
-      default                               => null,
-    };
+    if (str_contains($def, ':')) {
+      [$n, $s] = explode(':', $def, 2);
+      return [$n, array_map('trim', explode(',', $s))];
+    }
+    return [$def, ['*']];
+  }
+
+  /**
+   * Prepare constructor args for relationship.
+   */
+  private function prepareRelationshipArgs(Entity $parent, array $cfg): array
+  {
+    if ($cfg[0] === Bridge::class) {
+      return [$parent, $cfg[1], $cfg[2], $cfg[3], $cfg[4]];
+    }
+    return [$parent, $cfg[1], $cfg[2] ?? null];
   }
 }
