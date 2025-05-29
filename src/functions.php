@@ -525,6 +525,48 @@ if (!function_exists('storage_path')) {
   }
 }
 
+/**
+ * Get the full path to a view file
+ *
+ * This function returns the full path to a view file by appending the views path to the base path.
+ *
+ * @param string $path The relative path to the view file
+ * @return string The full path to the view file
+ */
+if (! function_exists('optional')) {
+  /**
+   * Wraps a value, letting you safely access properties
+   * or call methods without worrying about nulls.
+   *
+   * Usage in view: {{ optional($reg->student_class)->class_name ?? '–' }}
+   */
+  function optional($value)
+  {
+    return new class($value) {
+      private $value;
+      public function __construct($v)
+      {
+        $this->value = $v;
+      }
+      public function __get($prop)
+      {
+        return $this->value ? $this->value->$prop : null;
+      }
+      public function __call($method, $args)
+      {
+        return $this->value
+          ? $this->value->$method(...$args)
+          : null;
+      }
+      public function __toString()
+      {
+        // If you echo it directly, convert to string
+        return (string) $this->value;
+      }
+    };
+  }
+}
+
 
 /**
  * Load environment variables from a file
